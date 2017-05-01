@@ -228,7 +228,7 @@ if __name__ == "__main__":
 
 # In[36]:
 
-def train(input_seqs, output_seqs, modes, n_neg_per_mode, model_filepath, encoder_dim=4800, context_len=4,
+def train(input_seqs, output_seqs, modes, n_neg_per_mode, model_filepath, encoder_dim=4800, trunc_dim=4800, context_len=4,
           gen_temp=0.4, n_chunks=7, use_trunc=True, nb_epoch=10):
         
     #import pdb;pdb.set_trace()
@@ -248,14 +248,20 @@ def train(input_seqs, output_seqs, modes, n_neg_per_mode, model_filepath, encode
         
         if use_skipthoughts:
             encode_skipthought_seqs(neg_seqs, encoder_module, sent_encoder, 
-                                    encoder_dim, memmap=True, filepath=neg_seqs_filepath)
+                                    encoder_dim, trunc_dim, memmap=True, filepath=neg_seqs_filepath)
         else:
-            neg_seqs, _ = seq_binary.named_steps['transformer'].transform(X=neg_seqs)
+            #neg_seqs, _ = seq_binary.named_steps['transformer'].transform(X=neg_seqs)
+            neg_chunk_size = len(neg_seqs) / 4
+            neg_seqs_, _ = seq_binary.named_steps['transformer'].transform(X=neg_seqs[:neg_chunk_size])
+            neg_seqs_ = numpy.append(neg_seqs_, seq_binary.named_steps['transformer'].transform(X=neg_seqs[neg_chunk_size:neg_chunk_size * 2])[0], axis=0)
+            neg_seqs_ = numpy.append(neg_seqs_, seq_binary.named_steps['transformer'].transform(X=neg_seqs[neg_chunk_size * 2:neg_chunk_size * 2+ neg_chunk_size])[0], axis=0)
+            neg_seqs_ = numpy.append(neg_seqs_, seq_binary.named_steps['transformer'].transform(X=neg_seqs[neg_chunk_size * 3:])[0], axis=0)
+            neg_seqs = numpy.stack(neg_seqs_)
             numpy.save(neg_seqs_filepath, neg_seqs)
     
     if use_skipthoughts:
         neg_seqs = numpy.memmap(neg_seqs_filepath, dtype='float64', mode='r',
-                                shape=(len(input_seqs), n_neg_per_seq, encoder_dim))
+                                shape=(len(input_seqs), n_neg_per_seq, trunc_dim))
     else:
         #load neg seqs from mem-mapped file
         neg_seqs = numpy.load(neg_seqs_filepath, mmap_mode='r')
@@ -268,9 +274,9 @@ def train(input_seqs, output_seqs, modes, n_neg_per_mode, model_filepath, encode
     if not (os.path.exists(input_seqs_filepath) and os.path.exists(output_seqs_filepath)):
         if use_skipthoughts:
             encode_skipthought_seqs(input_seqs, encoder_module, sent_encoder, 
-                                                 encoder_dim, memmap=True, filepath=input_seqs_filepath)
+                                                 encoder_dim, trunc_dim, memmap=True, filepath=input_seqs_filepath)
             encode_skipthought_seqs(output_seqs, encoder_module, sent_encoder, 
-                                                  encoder_dim, memmap=True, filepath=output_seqs_filepath)
+                                                  encoder_dim, trunc_dim, memmap=True, filepath=output_seqs_filepath)
         else:
             input_seqs, output_seqs = seq_binary.named_steps['transformer'].transform(X=input_seqs,
                                                                                       y_seqs=output_seqs)
@@ -280,9 +286,9 @@ def train(input_seqs, output_seqs, modes, n_neg_per_mode, model_filepath, encode
     
     if use_skipthoughts:
         input_seqs = numpy.memmap(input_seqs_filepath, dtype='float64', mode='r',
-                                  shape=(len(input_seqs), context_len, encoder_dim))
+                                  shape=(len(input_seqs), context_len, trunc_dim))
         output_seqs = numpy.memmap(output_seqs_filepath, dtype='float64', mode='r',
-                                  shape=(len(input_seqs), encoder_dim))
+                                  shape=(len(input_seqs), trunc_dim))
     else:
         #load seqs from mem-mapped file
         input_seqs = numpy.load(input_seqs_filepath, mmap_mode='r')
@@ -322,10 +328,10 @@ def train(input_seqs, output_seqs, modes, n_neg_per_mode, model_filepath, encode
             #seq_binary.fit(X=train_seqs, y_seqs=train_y_seqs, y=train_y, classifier__nb_epoch=1)
     seq_binary.named_steps['classifier'].save()
 
-def evaluate(input_seqs, output_choices, output_gold, encoder_dim=4800):
+def evaluate(input_seqs, output_choices, output_gold, encoder_dim=4800, trunc_dim=2400):
     if use_skipthoughts:
-        input_seqs = encode_skipthought_seqs(input_seqs, encoder_module, sent_encoder, encoder_dim=encoder_dim)
-        output_choices = encode_skipthought_seqs(output_choices, encoder_module, sent_encoder, encoder_dim)
+        input_seqs = encode_skipthought_seqs(input_seqs, encoder_module, sent_encoder, encoder_dim, trunc_dim)
+        output_choices = encode_skipthought_seqs(output_choices, encoder_module, sent_encoder, encoder_dim, trunc_dim)
     else:
         input_seqs, output_choices = seq_binary.named_steps['transformer'].transform(X=input_seqs,
                                                                                   y_seqs=output_choices)
@@ -340,9 +346,9 @@ def evaluate(input_seqs, output_choices, output_gold, encoder_dim=4800):
 
 if __name__ == "__main__":
     use_skipthoughts = False
-    skipthoughts_model = 'roc' #'bookcorpus' #'roc' 
-    modes = ('backward',)#,'lm') #('random','backward','similarity','lm')#('random', 'backward', 'lm')
-    n_neg_per_mode = (4,)#(2, 2, 2)
+    skipthoughts_model = 'bookcorpus' #'bookcorpus' #'roc' 
+    modes = ('random','backward','similarity','lm')#('random', 'backward', 'lm')
+    n_neg_per_mode = (3,1,1,1)#(2, 2, 2)
         
     n_train_seqs = len(train_input_seqs)
     gen_temp = 0.4
@@ -373,8 +379,8 @@ if __name__ == "__main__":
     
     else:
         #import pdb;pdb.set_trace()
-        embed_filepath = 'roc97027_embeddings'
-        embed_name = 'roc_emb'
+        embed_filepath = 'roc97027_embeddings2400'
+        embed_name = 'roc_emb2400'
         #embed_filepath = 'AvMaxSim/vectors'
         #embed_name = 'google_emb'
         embeddings = similarity_score.load_model(embed_filepath)
@@ -398,7 +404,7 @@ if __name__ == "__main__":
                                                                    n_hidden_nodes=1000, context_size=4,
                                                                    filepath=filepath, use_dropout=False))])
 
-    #import pdb;pdb.set_trace()
+    import pdb;pdb.set_trace()
     train(train_input_seqs[:n_train_seqs], train_output_seqs[:n_train_seqs], modes=modes, 
           n_neg_per_mode=n_neg_per_mode, model_filepath=filepath, encoder_dim=n_embedding_nodes, 
           gen_temp=gen_temp, n_chunks=21, use_trunc=False)

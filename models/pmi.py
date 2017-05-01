@@ -4,7 +4,7 @@ import theano.tensor as T
 import theano.typed_list
 from keras.preprocessing.sequence import pad_sequences
 
-from transformer import segment_and_tokenize
+from transformer import *
 
 numpy.set_printoptions(suppress=True)
 
@@ -315,6 +315,36 @@ class PMI_Model(object):
 			obj = cPickle.load(object_file)
 
 		return obj
+
+
+def make_pmi(stories, filepath):
+    transformer = SequenceTransformer(min_freq=1, verbose=1, 
+                                      replace_ents=False, filepath=filepath)
+    stories, _, _ = transformer.fit_transform(X=stories)
+    #transformer = load_transformer(filepath)
+    #stories, _ = transformer.transform(X=stories)
+    pmi_model = PMI_Model(dataset_name=filepath)
+    pmi_model.count_unigrams(stories)
+    pmi_model.count_all_bigrams(stories)
+    return pmi_model
+
+def eval_pmi(transformer, model, input_seqs, output_choices):
+    scores = []
+    index = 0
+    input_seqs, output_choices = transformer.transform(X=input_seqs, y_seqs=output_choices)
+    for input_seq, choices in zip(input_seqs, output_choices):
+    	choice_scores = [model.score(sequences=[input_seq, choice]) for choice in choices]
+    	scores.append(choice_scores)
+        # choice1_score = model.score(sequences=[input_seq, output_choices[0]])
+        # choice2_score = model.score(sequences=[input_seq, output_choices[1]])
+        # choice_scores.append([choice1_score, choice2_score])
+        index += 1
+        if index % 200 == 0:
+            print "predicted", index, "inputs"
+        #print choice_scores
+    scores = numpy.array(scores)
+    pred_choices = numpy.argmax(scores, axis=1)
+    return scores, pred_choices
 
 
 # if __name__ == "__main__":

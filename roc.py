@@ -19,23 +19,8 @@ import models.classifier
 reload(models.classifier)
 from models.classifier import RNNLM
 
-sys.path.append('../DINE')
-import dine
-reload(dine)
-from dine import *
-import story_corpus
-reload(story_corpus)
-from story_corpus import *
-
-sys.path.append('AvMaxSim')
-import similarity_score
-reload(similarity_score)
-
-sys.path.append('skip-thoughts-master')
-import skipthoughts
-reload(skipthoughts)
-
 numpy.set_printoptions(precision=3, suppress=True)
+rng = numpy.random.RandomState(0)
 
 
 # In[7]:
@@ -64,7 +49,7 @@ def check_punct(stories, eos_markers=["\"", "\'", ".", "?", "!"]):
         for sent_idx, sent in enumerate(story):
             if sent[-1] not in eos_markers:
                 #import pdb;pdb.set_trace()
-                sent += eos_markers[0] #add period
+                sent += '.' #add period
                 stories[story_idx][sent_idx] = sent
     return stories      
 
@@ -87,6 +72,8 @@ def get_cloze_data(filepath, mode='adjacent', flatten=False):
                             'InputSentence4', 'RandomFifthSentenceQuiz1', 'RandomFifthSentenceQuiz2']].apply(
                 lambda sentences: numpy.all([type(sentence) is unicode for sentence in sentences]), axis=1)]
     input_seqs, output_choices, output_gold = prep_cloze_test(cloze_test, mode)
+    #a few stories are missing end-of-sentence punctuation, so fix it
+    input_seqs = check_punct(input_seqs)
     if flatten:
         #combine sents for each story into single string
         input_seqs = [" ".join(seq) for seq in input_seqs]
@@ -189,10 +176,7 @@ def encode_skipthought_seqs(seqs, encoder_module, encoder, encoder_dim=4800, mem
                                                                            seqs[seq_idx:seq_idx + chunk_size])
     if seq_length > 1:
         encoded_seqs = encoded_seqs.reshape(n_seqs, seq_length, encoder_dim)
-
-    return encoded_seqs
-    
-    #return encoded_seqs
+    del encoded_seqs
 
 
 # In[12]:

@@ -49,18 +49,18 @@ if __name__ == "__main__":
     #import pdb;pdb.set_trace()
     train_stories = get_train_stories(filepath='ROC-Stories.tsv') +                     get_train_stories(filepath='ROCStories_winter2017.csv')
     #train_stories = train_stories[:10000]
-    model_dir = 'skipthoughts_roc' + str(len(train_stories))
+    model_dir = 'skipthoughts4800_roc' + str(len(train_stories))
     lexicon_filepath = model_dir + '/lexicon'
     encoder_filepath = model_dir + '/encoder'
-    '''train_sents = prep_skipthought_seqs(train_stories)
+    train_sents = prep_skipthought_seqs(train_stories)
     lexicon, word_counts = build_skipthought_lexicon(train_sents, lexicon_filepath)
-    encoder_dim = 2400
-    encoder_train.trainer(train_sents, dictionary=lexicon_filepath, n_words=max(lexicon.values()),
+    encoder_dim = 4800
+    encoder_train.trainer(train_sents, dictionary=lexicon_filepath, n_words=max(lexicon.values()), batch_size=64,
                           dim=encoder_dim, saveto=encoder_filepath, saveFreq=50, max_epochs=5)
-    '''
+
     #load skipthoughts encoder with vectors for extending lexicon
     #embeddings = similarity_score.load_model('../AvMaxSim/vectors')
-    embeddings = Word2Vec.load('roc_embeddings')
+    embeddings = Word2Vec.load('roc97027_embeddings300')
     import pdb;pdb.set_trace()
     encoder = encoder_tools.load_model(embed_map=embeddings, 
                                        path_to_model=encoder_filepath, path_to_dictionary=lexicon_filepath)

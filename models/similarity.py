@@ -1,6 +1,6 @@
 import os, numpy
 from gensim import corpora, models, similarities
-from gensim.matutils import Dense2Corpus, dense2vec
+from gensim.matutils import Dense2Corpus, dense2vec, cossim
 
 from models.transformer import segment_and_tokenize, tokenize
 
@@ -31,6 +31,20 @@ class SequenceYielder():
             seq = get_seqs(seq_id, self.db_filepath)
             assert(seq)
             yield seq
+
+            
+class KeywordIndex():
+    def __init__(self, keywords):
+        self.keywords = keywords
+        print "building keyword index"
+        self.keyword_dict = corpora.Dictionary([self.keywords])
+        self.keyword_doc = self.keyword_dict.doc2bow(self.keywords)
+        self.index = similarities.MatrixSimilarity(corpus=[self.keyword_doc])
+    def get_scores(self, docs):
+        docs = [self.keyword_dict.doc2bow(segment_and_tokenize(doc)) for doc in docs]
+        scores = self.index[docs].flatten()
+        #score = cossim(self.keyword_doc, docs)
+        return scores
 
 
 class SimilarityIndex():
@@ -94,8 +108,6 @@ class SimilarityIndex():
         self.lexicon.compactify()
         #import pdb;pdb.set_trace()
         corpus = [self.lexicon.doc2bow(tokenize(seq)) for seq in seqs]
-        #self.model = models.TfidfModel(corpus, id2word=self.lexicon, normalize=True)
-        #self.index = similarities.MatrixSimilarity(self.model[corpus])
         self.index = similarities.MatrixSimilarity(corpus)
 
 
@@ -105,6 +117,7 @@ class SimilarityIndex():
         #scores = self.index[self.model[seq]]
         scores = self.index[seqs]
         best_ids = numpy.argsort(scores, axis=1)#[::-1]
+        scores = scores[numpy.arange(len(scores))[:, None], best_ids[:, -n_best:]]
         if self.n_sent:
             #use sequence ids for retrieval from seq db - sqlite ids start at 1
             best_ids = list(best_ids[:, -n_best:] + 1)
@@ -116,4 +129,4 @@ class SimilarityIndex():
         elif self.stories:
             #stories already loaded in memory
             seqs = [[self.stories[id] for id in ids] for ids in best_ids[:, -n_best:]]
-        return best_ids[:, -n_best:], seqs
+        return best_ids[:, -n_best:], seqs, scores
