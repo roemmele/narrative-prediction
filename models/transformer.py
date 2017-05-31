@@ -14,35 +14,169 @@ reload(encoder_tools)
 #load spacy model for nlp tools
 encoder = spacy.load('en')
 
-def segment(text):
-    return [sentence.string.strip() for sentence in encoder(text).sents]
+def segment(seq):
+    return [sentence.string.strip() for sentence in encoder(seq).sents]
 
-def tokenize(text):
-    return [word.lower_ for word in encoder(text)]# if word.string.strip()]
+def tokenize(seq, lowercase=True):
+    if lowercase:
+        return [word.lower_ for word in encoder(seq)]# if word.string.strip()]
+    else:
+        return [word.string.strip() for word in encoder(seq)]
 
-def segment_and_tokenize(text):
+def segment_and_tokenize(seq, lowercase=True):
     #import pdb;pdb.set_trace()
-    return [word.lower_ for sentence in encoder(text).sents 
-                            for word in sentence if word.string.strip()]
+    if lowercase:
+        return [word.lower_ for sentence in encoder(seq).sents 
+                                for word in sentence if word.string.strip()]
+    else:
+        return [word.string.strip() for sentence in encoder(seq).sents 
+                                for word in sentence if word.string.strip()]
+
 
 def replace_entities(tok_seq, ents):
     #input is sequence already tokenized into words
     #if rep strings given, replace entity word (e.g. "PERSON") with different string (e.g. "PERSON" > "I")
     return [ents[word] if word in ents else word for word in tok_seq]
 
-def get_entities(text):
-    return [(ent.string.strip(), ent.label_) for ent in encoder(text).ents]
+def get_entities(seq):
+    return [(ent.string.strip(), ent.label_) for ent in encoder(seq).ents]
+
+def get_cap_ents(seq):
+    if type(seq) not in (list,tuple): #if list given, sequence is already split into sentences
+        seq = segment(seq)
+    #need to lowercase words at beginning of sentences so they aren't treated as capitalized entities;
+    #however, the uppercased word might not be the first token (e.g. if it appears after punctuation), 
+    #so split first based on white space to lowercase the entire first segment before white space
+    seq = [detokenize_sent(tokenize(sent, lowercase=False)).split() for sent in seq]
+    seq = [" ".join([sent[0].lower()] + sent[1:]) for sent in seq]
+    seq = [token for sent in seq for token in tokenize(sent, lowercase=False)]
+    cap_ents = {}
+    cur_ent = []
+    for token in seq + [" "]: #add dummy final token in case the final token in this sentence is an entity
+        if token[0].isupper():
+            cur_ent.append(token)
+        elif cur_ent: #last token was the end of an entity, add it to list and reset cur_ent to look for new entity
+            if tuple(cur_ent) in cap_ents:
+                cap_ents[tuple(cur_ent)] += 1
+            else:
+                cap_ents[tuple(cur_ent)] = 1
+            cur_ent = []
+    #for single capitalized words, check if this word appears more often lowercase than uppercase; if so, remove it from cap ents list    
+    for cap_ent, count in cap_ents.items():
+        if len(cap_ent) == 1:
+            if seq.count(cap_ent[0].lower()) > count * 2:
+                del(cap_ents[cap_ent])
+    cap_ents = set(cap_ents.keys())
+    return cap_ents
+
+
+
+def detokenize_sent(sent, eos_tokens=['.', '?', '!'], cap_ents=set([])):
+    '''use simple rules for transforming list of tokens back into string
+    cap tokens is optional list of words that should be capitalized'''
+
+    assert(type(sent) in (list,tuple))
+
+    if cap_ents:
+        token_idx = 0
+        while token_idx < len(sent): #capitalize all tokens that appear in cap_ents
+            for cap_ent in cap_ents:
+                if sent[token_idx:token_idx + len(cap_ent)] == list([ent.lower() for ent in cap_ent]):
+                    sent[token_idx:token_idx + len(cap_ent)] = list(cap_ent)
+                    token_idx += len(cap_ent) - 1
+                    break
+            token_idx += 1
+
+
+    # if type(detok_sent) in (tuple, list):
+    detok_sent = " ".join(sent)
+
+    #capitalize first-person "I" pronoun
+    detok_sent = re.sub(" i ", " I ", detok_sent)
+
+    #rules for contractions
+    detok_sent = re.sub(" n\'t ", "n\'t ", detok_sent)
+    detok_sent = re.sub(" \'d ", "\'d ", detok_sent)
+    detok_sent = re.sub(" \'s ", "\'s ", detok_sent)
+    detok_sent = re.sub(" \'ve ", "\'ve ", detok_sent)
+    detok_sent = re.sub(" \'ll ", "\'ll ", detok_sent)
+    detok_sent = re.sub(" \'m ", "\'m ", detok_sent)
+    detok_sent = re.sub(" \'re ", "\'re ", detok_sent)
+
+    #rules for formatting punctuation
+    detok_sent = re.sub(" \.", ".", detok_sent)
+    detok_sent = re.sub(" \!", "!", detok_sent)
+    detok_sent = re.sub(" \?", "?", detok_sent)
+    detok_sent = re.sub(" ,", ",", detok_sent)
+    detok_sent = re.sub(" \- ", "-", detok_sent)
+    detok_sent = re.sub(" :", ":", detok_sent)
+    detok_sent = re.sub(" ;", ";", detok_sent)
+    detok_sent = re.sub("\$ ", "$", detok_sent)
+    detok_sent = re.sub("\' \'", "\'\'", detok_sent)
+    detok_sent = re.sub("\` \`", "\`\`", detok_sent)
+
+    #replace repeated single quotes with double quotation mark.
+    detok_sent = re.sub("\'\'", "\"", detok_sent)
+    detok_sent = re.sub("\`\`", "\"", detok_sent)
+
+    #filter repetitive characters
+    #detok_sent = re.sub("(\'\s*){3,}", "\'\'", detok_sent)
+    #detok_sent = re.sub("(\`\s*){3,}", "\`\`", detok_sent)
+    detok_sent = re.sub("([\"\']\s*){2,}", "\" ", detok_sent)
+    #detok_sent = re.sub("(\.\s*){4,}", "...", detok_sent)
+
+
+    punc_pairs = {"\'": "\'","\'": "\'", "`": "\'", "\"": "\"", "(": ")", "[": "]"} #map each opening puncutation mark to closing mark
+    open_punc = []
+    char_idx = 0
+    while char_idx < len(detok_sent): #check for quotes and parenthesis
+        char = detok_sent[char_idx]
+        if open_punc and char == punc_pairs[open_punc[-1]]: #end quote/parenthesis
+            if char_idx > 0 and detok_sent[char_idx-1] == " ":
+                detok_sent = detok_sent[:char_idx-1] + detok_sent[char_idx:]
+                open_punc.pop()
+        elif char in punc_pairs:
+            # if char_idx + 1 == len(detok_sent) and detok_sent[char_idx-1] == " ":
+            #     #sent ends in unmatched punc
+            #     detok_sent = detok_sent[:char_idx-1]# + char
+            #     break
+            if char_idx < len(detok_sent) - 1 and detok_sent[char_idx + 1] == " ":
+                open_punc.append(char)
+                detok_sent = detok_sent[:char_idx + 1] + detok_sent[char_idx+2:]
+        if char_idx < len(detok_sent) and detok_sent[char_idx] == char:
+            char_idx += 1
+
+    # if open_punc: #sent still has unclosed punc, so insert the closing punc
+    #     detok_sent += punc_pairs[open_punc[-1]]
+
+    detok_sent = detok_sent.strip()
+    for char_idx, char in enumerate(detok_sent): #capitalize first alphabetic character
+        if char.isalpha():
+            detok_sent = detok_sent[:char_idx + 1].upper() + detok_sent[char_idx + 1:]
+            break
+
+    # while len(detok_sent) > 1 and detok_sent[-1] in ("\"", "\'", "-", ",", ":", ";"):
+    #     detok_sent = detok_sent[:-1] #if sentence ends with punctuation that is not end of sentence punctuation, remove it
+    # if detok_sent[-1] not in eos_tokens:
+    #     detok_sent += "." #if sentence doesn't end in punctuation, add a period as default
+    #detok_sents.append(detok_sent)
+
+    return detok_sent
 
 def load_transformer(filepath, embeddings=None):
     #load saved models
+    if not os.path.exists(filepath + "/transformer.pkl"):
+        return None
     with open(filepath + '/transformer.pkl', 'rb') as f:
         transformer = pickle.load(f)
     transformer.word_embeddings = embeddings
     return transformer
 
 class SkipthoughtsTransformer():
-    def __init__(self, encoder_module, encoder, encoder_dim, verbose=True):
+    def __init__(self, encoder_module=skipthoughts, encoder=None, encoder_dim=4800, verbose=True):
         self.encoder_module = encoder_module
+        if not encoder:
+            encoder = self.encoder_module.load_model("../skip-thoughts-master")
         self.encoder = encoder
         self.encoder_dim = encoder_dim
         self.verbose = verbose
@@ -76,15 +210,15 @@ class SkipthoughtsTransformer():
         chunk_size = 500000
         for seq_idx in range(0, len(seqs), chunk_size):
             #memory errors if encoding a large number of stories
-            encoded_seqs[seq_idx:seq_idx + chs_size] = self.encoder_module.encode(self.encoder, 
+            encoded_seqs[seq_idx:seq_idx + chunk_size] = self.encoder_module.encode(self.encoder, 
                                                                                     seqs[seq_idx:seq_idx + chunk_size], verbose=self.verbose)
         
-        if type(seq_length) not in (list, tuple, numpy.ndarray) and seq_length > 1:
-            encoded_seqs = encoded_seqs.reshape(n_seqs, seq_length, self.encoder_dim)
-        else:
+        if type(seq_length) in (list, tuple, numpy.ndarray):
             #different lengths per sequence
             idxs = [numpy.sum(seq_length[:idx]) for idx in range(len(seq_length))] + [None] #add -1 for last entry
             encoded_seqs = [encoded_seqs[idxs[start]:idxs[start+1]] for start in range(len(idxs) - 1)]
+        else:
+            encoded_seqs = encoded_seqs.reshape(n_seqs, seq_length, self.encoder_dim)
             
         return encoded_seqs
 
@@ -117,18 +251,40 @@ def load_seqs(filepath, memmap=False, shape=None):
     print "loaded sequences from filepath", filepath
     return seqs
 
+def resave_transformer_nosklearn(old_transformer):
+    import pdb;pdb.set_trace()
+    new_transformer = SequenceTransformer()
+    #new_transformer.unk_word = old_transformer.unk_word
+    new_transformer.pad_seq = old_transformer.pad_seq
+    new_transformer.lexicon = old_transformer.lexicon
+    new_transformer.lexicon_size = old_transformer.lexicon_size
+    new_transformer.lexicon_lookup = old_transformer.lexicon_lookup
+    if hasattr(old_transformer, 'word_counts'):
+        new_transformer.word_counts = old_transformer.word_counts
+    else:
+        new_transformer.word_counts = {}
+    new_transformer.min_freq = old_transformer.min_freq
+    new_transformer.max_length = old_transformer.max_length
+    new_transformer.verbose = old_transformer.verbose
+    new_transformer.embed_y = old_transformer.embed_y
+    new_transformer.replace_ents = old_transformer.replace_ents
+    new_transformer.reduce_emb_mode = old_transformer.reduce_emb_mode
+    new_transformer.copy_input_to_output = old_transformer.copy_input_to_output
+    new_transformer.filepath = old_transformer.filepath
+    new_transformer.save()
 
-class SequenceTransformer(FunctionTransformer):
-    def __init__(self, lexicon=None, min_freq=1, max_lexicon_size=500000, max_length=None, 
-                 pad_seq=False, verbose=1, unk_word=u"<UNK>", word_embeddings=None, sent_encoder=None,
-                 replace_ents=False, embed_y=False, reduce_emb_mode=None, copy_input_to_output=False, 
-                 filepath=None):
+
+
+class SequenceTransformer():#FunctionTransformer
+    def __init__(self, lexicon=None, min_freq=1, max_length=None, pad_seq=False, 
+                    verbose=1, unk_word=u"<UNK>", word_embeddings=None, replace_ents=False,
+                    embed_y=False, reduce_emb_mode=None, copy_input_to_output=False, filepath=None): #sent_encoder=None, #max_lexicon_size=500000
         #import pdb;pdb.set_trace()
-        FunctionTransformer.__init__(self)
+        #FunctionTransformer.__init__(self)
         self.unk_word = unk_word #string representation for unknown words in lexicon
         #use existing word embeddings if given
         self.word_embeddings = word_embeddings
-        self.sent_encoder = sent_encoder
+        # self.sent_encoder = sent_encoder
         if self.word_embeddings is not None:
             if type(self.word_embeddings) is not dict:
                 #convert Word2Vec embeddings to dict
@@ -143,22 +299,21 @@ class SequenceTransformer(FunctionTransformer):
             self.lexicon_lookup = [None] + [word for index, word in 
                                     sorted([(index, word) for word, index in self.lexicon.items()])]
             assert(len(self.lexicon_lookup) == self.lexicon_size + 1)
-            
         self.min_freq = min_freq
-        self.max_lexicon_size = max_lexicon_size
+        # self.max_lexicon_size = max_lexicon_size
         self.max_length = max_length
         self.verbose = verbose
         #specify if y_seqs should be converted to embeddings like input seqs
         if embed_y:
-            assert(self.word_embeddings is not None or self.sent_encoder is not None)
+            assert(self.word_embeddings is not None)# or self.sent_encoder is not None)
         self.embed_y = embed_y
         self.replace_ents = replace_ents #specify if named entities should be replaced with generic labels
         self.reduce_emb_mode = reduce_emb_mode #specify if embeddings should be combined across sequence (e.g. take mean, sum)
         self.copy_input_to_output = copy_input_to_output
         if verbose and self.replace_ents:
             print "filter named entities = True"
-        if filepath and not os.path.isdir(filepath):
-            os.mkdir(filepath)
+        # if filepath and not os.path.isdir(filepath):
+        #     os.mkdir(filepath)
         self.filepath = filepath
 
     def make_lexicon(self, seqs):
@@ -262,85 +417,18 @@ class SequenceTransformer(FunctionTransformer):
             encoded_seqs.append(encoded_seq)
         assert(len(seqs) == len(encoded_seqs))
         return encoded_seqs
-
-    def detokenize_sent(self, sent, eos_tokens=['.', '?', '!'], cap_tokens=[]):
-        '''use simple rules for transforming list of tokens back into string
-        cap tokens is optional list of words that should be capitalized'''
-        #detok_sents = []
-
-        # for (sent_idx, sent) in enumerate(sents): #capitalize named entities
-        detok_sent = sent
-        for token_idx, token in enumerate(detok_sent):
-            for len_idx in range(4, 0, -1):
-                token = " ".join([token[0].upper() + token[1:] for token in detok_sent[token_idx:token_idx + len_idx]])
-                ent = get_entities(token)
-                if ent:
-                    ent, ent_type = ent[0]
-                    if ent == token and ent_type in ('PERSON', 'ORG', 'GPE', 'LOC', 'PRODUCT', 'FACILITY', 'EVENT', 'WORK OF ART', 'LANGUAGE'): #if cap tokens is given, only capitalize tokens that are found in this list
-                        if not cap_tokens or (cap_tokens and ent.lower() in cap_tokens):
-                            detok_sent[token_idx:token_idx + len_idx] = ent.split()
-                            break
-
-        # if type(detok_sent) in (tuple, list):
-        detok_sent = " ".join(detok_sent)
-
-        #capitalize first-person "I" pronoun
-        detok_sent = re.sub("i ", "I ", detok_sent)
-        # detok_sent = re.sub(" i ", " I ", detok_sent)
-
-        #rules for contractions
-        detok_sent = re.sub(" n\'t ", "n\'t ", detok_sent)
-        detok_sent = re.sub(" \'d ", "\'d ", detok_sent)
-        detok_sent = re.sub(" \'s ", "\'s ", detok_sent)
-        detok_sent = re.sub(" \'ve ", "\'ve ", detok_sent)
-        detok_sent = re.sub(" \'ll ", "\'ll ", detok_sent)
-        detok_sent = re.sub(" \'m ", "\'m ", detok_sent)
-        detok_sent = re.sub(" \'re ", "\'re ", detok_sent)
-
-        #rules for formatting punctuation
-        detok_sent = re.sub(" \.", ".", detok_sent)
-        detok_sent = re.sub(" \!", "!", detok_sent)
-        detok_sent = re.sub(" \?", "?", detok_sent)
-        detok_sent = re.sub(" ,", ",", detok_sent)
-        detok_sent = re.sub(" \- ", "-", detok_sent)
-        detok_sent = re.sub(" :", ":", detok_sent)
-        detok_sent = re.sub(" ;", ";", detok_sent)
-        detok_sent = re.sub("\$ ", "$", detok_sent)
-
-        punc_pairs = {"\'": "\'", "\"": "\"", "(": ")", "[": "]"} #map each opening puncutation mark to closing mark
-        open_punc = None
-        for (char_idx, char) in enumerate(detok_sent): #check for quotes and parenthesis
-            if char in punc_pairs:
-                open_punc = char
-                if char_idx + 1 == len(detok_sent):
-                    #sent ends in unmatched punc
-                    detok_sent = detok_sent[:char_idx-1] + char
-                elif detok_sent[char_idx + 1] == " ":
-                    detok_sent = detok_sent[:char_idx] + char + detok_sent[char_idx+1:]
-            elif open_punc and char is punc_pairs[open_punc]: #end quote/parenthesis
-                if char_idx > 0 and detok_sent[char_idx-1] == " ":
-                    detok_sent = detok_sent[:char_idx-1] + char + detok_sent[char_idx:]
-                    open_punc = None
-
-        detok_sent = detok_sent.strip()
-        detok_sent = detok_sent[0].upper() + detok_sent[1:]
-        while len(detok_sent) > 1 and detok_sent[-1] in ("\"", "\'", "-", ",", ":", ";"):
-            detok_sent = detok_sent[:-1] #if sentence ends with punctuation that is not end of sentence punctuation, remove it
-        if detok_sent[-1] not in eos_tokens:
-            detok_sent += "." #if sentence doesn't end in punctuation, add a period as default
-        #detok_sents.append(detok_sent)
-
-        return detok_sent
     
-    def decode_seqs(self, seqs, eos_tokens=['.', '?', '!'], cap_tokens=[]):
+    def decode_seqs(self, seqs, eos_tokens=[u'.', u'?', u'!'], detokenize=False, cap_ents=[]):
         if type(seqs[0]) not in (list, numpy.ndarray, tuple):
             seqs = [seqs]
         decoded_seqs = []
         #transform numerical seq back intro string
-        for seq in seqs:
+        for seq, ents in zip(seqs, cap_ents):
             seq = [self.lexicon_lookup[word] if self.lexicon_lookup[word] else "None" for word in seq]
-            #seq = " ".join(seq)
-            seq = self.detokenize_sent(sent=seq, eos_tokens=eos_tokens, cap_tokens=cap_tokens)#, named_ents=named_ents) #detokenize; pass a list of words that should be capitalized
+            if detokenize:
+                seq = detokenize_sent(sent=seq, eos_tokens=eos_tokens, cap_ents=ents)#, named_ents=named_ents) #detokenize; pass a list of words that should be capitalized
+            else:
+                seq = " ".join(seq)
             decoded_seqs.append(seq)
         if len(decoded_seqs) == 1:
             decoded_seqs = decoded_seqs[0]
@@ -360,20 +448,20 @@ class SequenceTransformer(FunctionTransformer):
             embedded_seqs.append(seq)
         return embedded_seqs
 
-    def encode_sents(self, seqs):
-        #convert sentences to vectors
-        encoded_seqs = []
-        for seq in seqs:
-            # if self.sent_encoder.__class__.__name__ == 'Sequential':
-            #     #keras encoder
-            seq = self.sent_encoder.predict(numpy.array(seq)[None])[0][-1]
-            # elif self.sent_encoder.__class__.__name__ == 'dict':
-            #     #skipthoughts encoder
-            #     seq = skipthoughts.encode(sent_encoder, seq)
-            encoded_seqs.append(seq)
-            self.sent_encoder.reset_states()
-        encoded_seqs = numpy.array(encoded_seqs)
-        return encoded_seqs
+    # def encode_sents(self, seqs):
+    #     #convert sentences to vectors
+    #     encoded_seqs = []
+    #     for seq in seqs:
+    #         # if self.sent_encoder.__class__.__name__ == 'Sequential':
+    #         #     #keras encoder
+    #         seq = self.sent_encoder.predict(numpy.array(seq)[None])[0][-1]
+    #         # elif self.sent_encoder.__class__.__name__ == 'dict':
+    #         #     #skipthoughts encoder
+    #         #     seq = skipthoughts.encode(sent_encoder, seq)
+    #         encoded_seqs.append(seq)
+    #         self.sent_encoder.reset_states()
+    #     encoded_seqs = numpy.array(encoded_seqs)
+    #     return encoded_seqs
     
     def reduce_embs(self, seqs):
         #import pdb;pdb.set_trace()
@@ -432,11 +520,11 @@ class SequenceTransformer(FunctionTransformer):
         if y_seqs is not None:
             y_seqs = self.format_seqs(seqs=y_seqs)
             y_seqs = [self.text_to_nums(seqs=seqs) for seqs in y_seqs]
-            if self.sent_encoder and self.embed_y:
-                y_seqs = numpy.array([self.encode_sents(seqs=seqs) for seqs in y_seqs])
-                if self.pad_seq:
-                    y_seqs = self.pad_embeddings(seqs=y_seqs)
-            elif self.word_embeddings and self.embed_y:
+            # if self.sent_encoder and self.embed_y:
+            #     y_seqs = numpy.array([self.encode_sents(seqs=seqs) for seqs in y_seqs])
+            #     if self.pad_seq:
+            #         y_seqs = self.pad_embeddings(seqs=y_seqs)
+            if self.word_embeddings and self.embed_y:
                 y_seqs = [self.embed_words(seqs=seqs) for seqs in y_seqs]
                 if self.reduce_emb_mode:
                     y_seqs = self.reduce_embs(y_seqs)
@@ -459,12 +547,12 @@ class SequenceTransformer(FunctionTransformer):
             if self.pad_seq:
                 y_seqs = self.pad_nums(seqs=y_seqs)
             y_seqs = self.remove_extra_dim(seqs=y_seqs)
-        if self.sent_encoder:
-            X = numpy.array([self.encode_sents(seqs=seqs) for seqs in X])
-            if self.pad_seq:
-                #import pdb;pdb.set_trace()
-                X = self.pad_encoded_sents(seqs=X)
-        elif self.word_embeddings:
+        # if self.sent_encoder:
+        #     X = numpy.array([self.encode_sents(seqs=seqs) for seqs in X])
+        #     if self.pad_seq:
+        #         #import pdb;pdb.set_trace()
+        #         X = self.pad_encoded_sents(seqs=X)
+        if self.word_embeddings:
             X = [self.embed_words(seqs=seqs) for seqs in X]
             #combine embeddings if specified
             if self.reduce_emb_mode:
@@ -492,7 +580,7 @@ class SequenceTransformer(FunctionTransformer):
         
     def __getstate__(self):
         #don't save embeddings
-        state = dict((k, v) for (k, v) in self.__dict__.iteritems() if k not in ('word_embeddings', 'sent_encoder'))
-        state.update({'word_embeddings': None, 'sent_encoder': None})
+        state = dict((k, v) for (k, v) in self.__dict__.iteritems() if k not in ('word_embeddings'))#, 'sent_encoder'))
+        state.update({'word_embeddings': None})#, 'sent_encoder': None})
         return state
 

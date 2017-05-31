@@ -19,85 +19,6 @@ if os.path.isdir("/Volumes/G-DRIVE mobile with Thunderbolt/"):
 def get_story_ids(db_type='mysql', offset=0, n_stories=None, min_length=None, max_length=None, sites=[], filter=False):
 
     assert(db_type in ('mysql', 'sqlite'))
-    
-    #  blog_link LIKE "%blogspot.com%" OR\
-    # blog_link LIKE "http://facebook.com%" OR\
-    #  blog_link LIKE "%livejournal.com%" OR\
-    # OR blog_link LIKE "%opensalon.com%" (blog)
-    # blog_link LIKE "%xanga.com%")\
-    #blog_link LIKE "%blogsome.com%" OR\
-    #blog_link LIKE "%tumblr.com%" OR\
-    # blog_link LIKE "%scribd.com%" OR\ (*contains spam)
-    # http://allfreelancewriting.com
-    # http://www.redheadwriting.com (blog)
-    #deviantart.com (blogs)
-    #blog_link LIKE "%typepad.com%"  (blogs, but also news and promotional content)
-
-    #Maybe:
-    #http://maryrobinettekowal.com (blog?)
-    #http://www.publetariat.com/
-    #http://www.nanowrimo.org (blog about writing?)
-    #http://journal.neilgaiman.com/ (blog about writing?)
-    #http://www.authonomy.com (some writing, some commentary about writing)
-    #http://www.publishersweekly.com/ (commentary)
-    #http://fictionwritersreview.com (commentary)
-    #http://www.shewrites.com (personal stories)
-    #http://www.murdershewrites.com/ (personal stories)
-    #http://www.aliettedebodard.com
-    # http://www.smashwords.com (a lot of summaries?)
-    # http://www.fanstory.com/ (a lot of poetry-style stories)
-    #open.salon.com%"
-    #http://www.benjaminrosenbaum.com/blog
-    #http://www.lawrencemschoen.com
-    #http://kentbrewster.com
-    #"%kentbrewster.com%"
-    # blog_link LIKE "%webfictionguide.com%" OR (forums)
-    #OR blog_link LIKE "%fantasyhotlist.blogspot.com%"
-    # blog_link LIKE "%published.com%" OR
-     #OR blog_link LIKE "%fantasybookcritic.blogspot.com%"
-    #  blog_link LIKE "%literotica.com%" OR
-    #blog_link LIKE "%writerswrite.com%" OR
-    #OR blog_link LIKE "%one-story.com%"
-    #OR blog_link LIKE "%crossedgenres.com%"
-    # blog_link LIKE "%storybird.com%"
-    #  blog_link LIKE "%bookpage.com%" OR
-    #OR blog_link LIKE "%abelard.org%"
-    #blog_link LIKE "%jacketflap.com%" OR
-    #http://romance-novels.alltop.com (a lot of blog-like stories interspersed)
-    #blog_link LIKE "%manybooks.net%" OR (book summaries/short excerpts)
-
-    #fiction (tons!):
-    #blog_link LIKE "%wattpad.com%" OR
-    #blog_link LIKE "%writerscafe.org%" OR
-    
-#     query = 'SELECT id\
-#         FROM story\
-#         WHERE (blog_link LIKE "%absolutewrite.com%" OR\
-#                blog_link LIKE "%authonomy.com%" OR\
-#                blog_link LIKE "%scribd.com%" OR\
-#                blog_link LIKE "%bookpage.com%" OR\
-#                blog_link LIKE "%fanfiction.net%" OR\
-#                blog_link LIKE "%fanstory.com%" OR\
-#                blog_link LIKE "%fictionwritersreview.com%" OR\
-#                blog_link LIKE "%goodreads.com%" OR\
-#                blog_link LIKE "%guidetoliteraryagents.com%" OR\
-#                blog_link LIKE "%jacketflap.com%" OR\
-#                blog_link LIKE "%publetariat.com%" OR\
-#                blog_link LIKE "%published.com%" OR\
-#                blog_link LIKE "%publishersweekly.com%" OR\
-#                blog_link LIKE "%shewrites.com%" OR\
-#                blog_link LIKE "%smashwords.com%" OR\
-#                blog_link LIKE "%http://tor.com%" OR\
-#                blog_link LIKE "%http://typepad.com%" OR\
-#                blog_link LIKE "%urbis.com%" OR\
-#                blog_link LIKE "%wattpad.com%" OR\
-#                blog_link LIKE "%writerscafe.org%" OR\
-#                blog_link LIKE "%writersdigest.com%" OR\
-#                blog_link LIKE "%writersonlineworkshops.com%" OR\
-#                blog_link LIKE "%writerswrite.com%" OR\
-#                blog_link LIKE "%writing.com%" OR\
-#             AND content_extract NOT LIKE "Start downloading documents right away.%"\
-# ORDER BY id' #returns 13118750 stories in MySQL db
 
     query = 'SELECT id FROM story'
 
@@ -122,7 +43,7 @@ def get_story_ids(db_type='mysql', offset=0, n_stories=None, min_length=None, ma
                         
     elif db_type == 'sqlite':
         db = sqlite3.connect(parsed_db_filepath)
-        query += ' WHERE NOT is_spam AND NOT is_duplicate'# AND NOT is_adult' #ignore stories that are null, duplicate, or spam
+        query += ' WHERE NOT is_spam AND NOT is_duplicate AND NOT is_adult' #ignore stories that are null, duplicate, or spam
         
         if min_length:
             query += " AND LENGTH(text) >= " + str(min_length)
@@ -262,140 +183,62 @@ def get_seqs(seq_ids, db_filepath):
         seqs = seqs[0]
     return seqs
 
-def make_seqs_table(story_ids, n_sent, db_filepath):
+def get_next_seq(seq_id, db_filepath):
+    '''get the sequence that appears after the given sequence id in its respective story;
+    if there's no sequence (i.e. the sequence id is last sequence of the story), return None'''
+
+    db = sqlite3.connect(db_filepath)
+    cursor = db.cursor()
+    #first get story id for this sequence
+    cursor.execute("SELECT story_id FROM sequence WHERE id = " + str(seq_id))
+    story_id = cursor.fetchone()
+    if not story_id:
+        print "error: sequence ID", seq_id, "not found in", db_filepath
+        return None
+    else:
+        story_id = story_id[0]
+    #then get sequence that follows sequence ID, ensuring that the story ID is the same
+    cursor.execute("SELECT text FROM sequence WHERE id = " + str(seq_id + 1) + " AND story_id = " + str(story_id))
+    seq = cursor.fetchone()
+    cursor.close()
+    db.close()
+    if not seq:
+        return None
+    else:
+        return seq[0]
+
+def get_n_seqs(db_filepath):
+    #import pdb;pdb.set_trace()
+    db = sqlite3.connect(db_filepath)
+    cursor = db.cursor()
+    cursor.execute("SELECT COUNT(*) FROM sequence")
+    n_seqs = cursor.fetchone()[0]
+    cursor.close()
+    db.close()
+    return n_seqs
+
+
+def make_seqs_table(story_ids, n_sents, db_filepath):
     #import pdb;pdb.set_trace()
     #create a new table to store sequences in index
-    connection = sqlite3.connect(db_filepath)
-    cursor = connection.cursor()
+    db = sqlite3.connect(db_filepath)
+    cursor = db.cursor()
 
     cursor.execute("CREATE TABLE IF NOT EXISTS sequence(                    id INTEGER PRIMARY KEY,                    story_id INTEGER,                    text TEXT)")
     
-    n_seq = 0
-    for story_id in story_ids:
+    n_seqs = 0
+    for story_idx, story_id in enumerate(story_ids):
         story = get_stories(story_id)
-        seqs = split_into_seqs(story, n_sent)
-        n_seq += len(seqs)
+        seqs = split_into_seqs(story, n_sents)
+        n_seqs += len(seqs)
         cursor.executemany("INSERT INTO sequence(id, story_id, text)                            VALUES (?, ?, ?)", [(None, story_id, seq) for seq in seqs])
+        if story_idx % 50000 == 0:
+            print "added", n_seqs, "sequences to", db_filepath, "for", story_idx, "stories..."
 
-    connection.commit()
-    connection.close()
+    db.commit()
+    db.close()
     
-    return n_seq
-
-
-# In[6]:
-
-# class StoryYielder():
-#     #retrieves full stories one by one
-#     def __init__(self, story_ids):
-#         self.story_ids = story_ids
-#     def __iter__(self):
-#         #retrieve from stories table
-#         for story_id in self.story_ids:
-#             story = get_stories(story_id)
-#             assert(story)
-#             yield story
-    
-
-# class SequenceYielder():
-#     #retrieves story segments one by one
-#     def __init__(self, n_sent, story_ids, db_filepath):
-#         self.n_sent = n_sent
-#         self.story_ids = story_ids
-#         self.db_filepath = db_filepath
-#         self.n_seq = make_seqs_table(self.story_ids, n_sent, self.db_filepath)
-#     def __iter__(self):
-#         #retrieve from seqs table - sqlite3 ids start at 1
-#         for seq_id in range(1, self.n_seq + 1):
-#             #import pdb;pdb.set_trace()
-#             #retrieve next - in sqlite ids start at 1
-#             seq = get_seqs(seq_id, self.db_filepath)
-#             assert(seq)
-#             yield seq
-        
-
-# class SimilarityIndex():
-#     def __init__(self, filepath, story_ids=None, stories=None, n_sent=None, min_freq=2):
-#         '''either retreive stories from story ids in db, or index given stories'''
-#         self.n_sent = n_sent
-#         self.story_ids = story_ids
-#         self.stories = stories
-#         self.min_freq = min_freq
-#         self.filepath = filepath
-#         self.name = filepath.split("/")[-1]
-#         if self.filepath[-1] != "/":
-#             self.filepath += "/"
-#         if os.path.isdir(self.filepath):
-#             #try to load existing index if name given
-#             self.load_index()
-#         else:
-#             assert(self.story_ids or self.stories)
-#             #assert(self.stories is None if self.story_ids)
-#             #assert(self.stories is None if self.n_sent)
-#             #if index by this name doesn't exist, create new index
-#             os.mkdir(self.filepath)
-#             if not self.stories:
-#                 #retrieve stories from db
-#                 if self.n_sent:
-#                     #import pdb;pdb.set_trace()
-#                     #stories are sequences of self.n_sent sentences
-#                     stories = SequenceYielder(self.n_sent, self.story_ids,
-#                                                   db_filepath=self.filepath + self.name + ".seqs.db")
-#                     #print "building index for", stories.n_seq, "story sequences of", self.n_sent, "sentences each"
-#                 else:
-#                     stories = StoryYielder(self.story_ids)
-#             self.make_index(stories)
-#             self.save_index()
-    
-#     def load_index(self):
-#         print "loading index", self.name
-#         if os.path.isdir(self.filepath + self.name + ".story_ids"):
-#             with open(self.filepath + self.name + ".story_ids", 'rb') as f:
-#                 self.story_ids = pickle.load(f)
-#         self.lexicon = corpora.Dictionary.load(self.filepath + self.name + ".lexicon")
-#         self.model = models.TfidfModel.load(self.filepath + self.name + ".model")
-#         self.index = similarities.MatrixSimilarity.load(self.filepath + self.name + ".index")
-                   
-#     def save_index(self):
-#         if self.story_ids:
-#             with open(self.filepath + self.name + ".story_ids", 'wb') as f:
-#                 pickle.dump(self.story_ids, f)
-#         self.lexicon.save(self.filepath + self.name + ".lexicon")
-#         self.model.save(self.filepath + self.name + ".model")
-#         self.index.save(self.filepath + self.name + ".index")
-
-#         print "saved index to", self.name, "folder"
-                   
-    
-#     def make_index(self, seqs):
-#         print "building index for", len([seq for seq in seqs]), "story sequences"
-#         self.lexicon = corpora.Dictionary([tokenize(seq) for seq in seqs])
-#         self.lexicon.filter_extremes(no_below=self.min_freq)
-#         print "generated lexicon of", len(self.lexicon.keys()), "words with frequency >=", self.min_freq
-#         self.lexicon.compactify()
-#         #import pdb;pdb.set_trace()
-#         corpus = [self.lexicon.doc2bow(tokenize(seq)) for seq in seqs]
-#         self.model = models.TfidfModel(corpus, id2word=self.lexicon, normalize=True)
-#         self.index = similarities.MatrixSimilarity(self.model[corpus])
-
-
-#     def get_similar_seqs(self, seq, n_best=1):
-#         #import pdb;pdb.set_trace()
-#         seq = self.lexicon.doc2bow(segment_and_tokenize(seq))
-#         scores = self.index[self.model[seq]]
-#         best_ids = numpy.argsort(scores)[::-1]
-#         if self.n_sent:
-#             #use sequence ids for retrieval from seq db - sqlite ids start at 1
-#             best_ids = list(best_ids[:n_best] + 1)
-#             seqs = get_seqs(seq_ids=best_ids, db_filepath=self.filepath + self.name + ".seqs.db")
-#         elif self.story_ids:
-#             #use story ids for retrieval from story db
-#             best_ids = [self.story_ids[id] for id in best_ids[:n_best]]
-#             seqs = get_stories(story_ids=best_ids)
-#         elif self.stories:
-#             #stories already loaded in memory
-#             seqs = [self.stories[id] for id in best_ids[:n_best]]     
-#         return seqs
+    return n_seqs
     
 
 

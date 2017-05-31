@@ -37,7 +37,8 @@ class SavedModel():
     def __getstate__(self):
         #don't save model itself with classifier object, it'll be saved separately as .h5 file
         attrs = self.__dict__.copy()
-        del attrs['model']
+        if 'model' in attrs:
+            del attrs['model']
         if 'pred_model' in attrs:
             del attrs['pred_model']
         if 'encoder_model' in attrs:
@@ -61,7 +62,7 @@ def get_batch(seqs, batch_size=None, padding='pre', max_length=None, n_timesteps
     return seqs
 
 
-class RNNClassifier(KerasClassifier):
+class RNNClassifier():
     def __call__(self, lexicon_size, n_outcomes, input_to_outcome_set=None, 
                  max_length=None, emb_weights=None, layer1_weights=None):
         model = Sequential()
@@ -96,10 +97,38 @@ class RNNClassifier(KerasClassifier):
         else:
             return super(RNNClassifier, self).predict(X, **kwargs)
 
+def resave_classifier_nosklearn(old_classifier):
+    import pdb;pdb.set_trace()
+    new_classifier = RNNLM()
+    new_classifier.lexicon_size = old_classifier.lexicon_size
+    new_classifier.n_embedding_nodes = old_classifier.n_embedding_nodes
+    new_classifier.n_hidden_nodes = old_classifier.n_hidden_nodes
+    new_classifier.n_hidden_layers = old_classifier.n_hidden_layers
+    new_classifier.batch_size = old_classifier.batch_size
+    new_classifier.max_length = old_classifier.max_length
+    new_classifier.verbose = old_classifier.verbose
+    new_classifier.n_timesteps = old_classifier.n_timesteps
+    new_classifier.filepath = old_classifier.filepath
+    new_classifier.embeddings = old_classifier.embeddings
+    new_classifier.optimizer = old_classifier.optimizer
+    new_classifier.lr = old_classifier.lr
+    new_classifier.clipvalue = old_classifier.clipvalue
+    new_classifier.decay = old_classifier.decay
+    new_classifier.separate_context = old_classifier.separate_context
+    new_classifier.max_sent_length = old_classifier.max_sent_length
+    #new_classifier.sample_words = old_classifier.sample_words
+    #new_classifier.model = old_classifier.model
+    #new_classifier.start_time = old_classifier.start_time
+    #ew_classifier.epoch = old_classifier.epoch
+    with open(new_classifier.filepath + '/classifier.pkl', 'wb') as f:
+        pickle.dump(new_classifier, f)
+    #new_classifier.save()
 
-class RNNLM(KerasClassifier, SavedModel):
+
+
+class RNNLM(SavedModel):#KerasClassifier
     def __init__(self, lexicon_size=None, n_timesteps=None, n_embedding_nodes=300, n_hidden_nodes=250, n_hidden_layers=1,
-                 embeddings=None, batch_size=1, max_length=None, max_sent_length=None, verbose=1, filepath=None,
+                 embeddings=None, batch_size=1, max_sent_length=None, verbose=1, filepath=None,
                  optimizer='Adam', lr=0.001, clipvalue=5.0, decay=1e-6, separate_context=False):
         
         self.lexicon_size = lexicon_size
@@ -107,7 +136,6 @@ class RNNLM(KerasClassifier, SavedModel):
         self.n_hidden_nodes = n_hidden_nodes
         self.n_hidden_layers = n_hidden_layers
         self.batch_size = batch_size
-        self.max_length = max_length
         self.verbose = verbose
         self.n_timesteps = n_timesteps
         self.filepath = filepath
@@ -306,7 +334,7 @@ class RNNLM(KerasClassifier, SavedModel):
         #assert(len(p_next_word.shape) == 1)
         return p_next_words
 
-    def pred_batch_next_words(self, p_next_words, mode='max', n_best=1, temp=1.0):
+    def pred_batch_next_words(self, p_next_words, mode='max', n_best=1, temp=1.0, prevent_unk=True):
 
         def sample_word(p_next_word):
             word = theano_rng.choice(size=(n_best,), a=T.arange(p_next_word.shape[0]), replace=True, p=p_next_word, dtype='int64')
@@ -321,6 +349,13 @@ class RNNLM(KerasClassifier, SavedModel):
             sample_words = theano.function([P_Next_Words, Temp], Next_Words, updates=Updates)
             return sample_words
 
+        if prevent_unk: #prevent model from generating unknown words by redistributing probability; assumes index 1 is prob of unknown word
+            #import pdb;pdb.set_trace()
+            p_unk = p_next_words[:,1]
+            added_p = (p_unk / p_next_words[:,2:].shape[-1])[:,None]
+            p_next_words[:,2:] = p_next_words[:,2:] + added_p
+            p_next_words[:,1] = 0.0
+
         if mode == 'random':
             #numpy is too slow at random sampling, so use theano
             if not hasattr(self, 'sample_words') or not self.sample_words:
@@ -329,7 +364,7 @@ class RNNLM(KerasClassifier, SavedModel):
             #next_words = numpy.array([self.sample_word(p_next_word, n_best, temp)[0] for p_next_word in p_next_words])
         else:
             #next_words = numpy.array([numpy.argmax(p_next_word) for p_next_word in p_next_words])
-            next_words = numpy.argmax(p_next_words, axis=1)
+            next_words = numpy.argmax(p_next_words, axis=1)[:,None]
 
         #p_next_words = p_next_words[numpy.arange(len(p_next_words)), next_words]
         p_next_words = p_next_words[numpy.arange(len(p_next_words))[:,None], next_words]
@@ -347,16 +382,16 @@ class RNNLM(KerasClassifier, SavedModel):
             new_sents.append(new_sent)
         return new_sents
     
-    def embed_sent(self, sent):
-        embedded_sent = []
-        for word in sent:
-            #convert last predicted word to embedding
-            if self.lexicon_lookup[word] in self.embeddings:
-                #next_word = embeddings[lexicon_lookup[next_word]]
-                embedded_sent.append(self.embeddings[self.lexicon_lookup[word]])
-            else:
-                embedded_sent.append(numpy.zeros((self.n_embedding_nodes)))
-        return embedded_sent
+    # def embed_sent(self, sent):
+    #     embedded_sent = []
+    #     for word in sent:
+    #         #convert last predicted word to embedding
+    #         if self.lexicon_lookup[word] in self.embeddings:
+    #             #next_word = embeddings[lexicon_lookup[next_word]]
+    #             embedded_sent.append(self.embeddings[self.lexicon_lookup[word]])
+    #         else:
+    #             embedded_sent.append(numpy.zeros((self.n_embedding_nodes)))
+    #     return embedded_sent
     
     def check_if_eos(self, sent, eos_tokens):
         #check if an end-of-sentence marker has been generated for this sentence
@@ -378,7 +413,7 @@ class RNNLM(KerasClassifier, SavedModel):
         
         return best_sents, p_sents
         
-    def predict(self, X, y_seqs=None, n_words=20, mode='max', batch_size=1, n_best=1, temp=1.0, eos_tokens=[]):
+    def predict(self, X, y_seqs=None, max_length=20, mode='max', batch_size=1, n_best=1, temp=1.0, eos_tokens=[], prevent_unk=True):
 
         if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0]:
             # if self.batch_size > 1:
@@ -410,7 +445,7 @@ class RNNLM(KerasClassifier, SavedModel):
             for batch_index in range(0, len(X), batch_size):
                 #prep batch
                 batch = get_batch(seqs=X[batch_index:batch_index + batch_size], batch_size=batch_size)
-                #batch_sents = numpy.zeros((batch_size, n_words), dtype='int64')
+                #batch_sents = numpy.zeros((batch_size, max_length), dtype='int64')
                 batch_p_sents = self.pred_model.predict_on_batch(x=batch)
                 if mode == 'max':
                     batch_sents = numpy.argmax(batch_p_sents, axis=-1)
@@ -509,8 +544,8 @@ class RNNLM(KerasClassifier, SavedModel):
                 for batch_index in range(0, len(X), batch_size):
                     #prep batch
                     batch = get_batch(seqs=X[batch_index:batch_index + batch_size], batch_size=batch_size)
-                    batch_sents = numpy.zeros((batch_size, n_words), dtype='int64')
-                    batch_p_sents = numpy.zeros((batch_size, n_words))
+                    batch_sents = numpy.zeros((batch_size, max_length), dtype='int64')
+                    batch_p_sents = numpy.zeros((batch_size, max_length))
 
                     #read context
                     #import pdb;pdb.set_trace()
@@ -521,8 +556,8 @@ class RNNLM(KerasClassifier, SavedModel):
                         p_next_words = self.get_batch_p_next_words(words=batch[:, step_index])
 
                     #now predict
-                    for idx in range(n_words):
-                        next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp)
+                    for idx in range(max_length):
+                        next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
                         batch_sents[:, idx] = next_words
                         batch_p_sents[:, idx] = p_next_words
                         p_next_words = self.get_batch_p_next_words(words=batch_sents[:, idx])
@@ -755,7 +790,7 @@ class SeqBinaryClassifier(SavedModel, KerasClassifier):
 
 
 
-class Autoencoder(KerasClassifier):
+class Autoencoder():
     def __call__(self, lexicon_size, verbose=1):
         self.lexicon_size = lexicon_size
         self.verbose = verbose
@@ -905,7 +940,7 @@ class MLPLM(SavedModel):
         #p_next_words = p_next_words[:, 0]
         return next_words#, p_next_words
 
-    def predict(self, X, n_words=20, mode='max', batch_size=1, n_best=1, temp=1.0, eos_tokens=[]):
+    def predict(self, X, max_length=20, mode='max', batch_size=1, n_best=1, temp=1.0, eos_tokens=[]):
 
         # if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0]:
         #     # if self.batch_size > 1:
@@ -924,7 +959,7 @@ class MLPLM(SavedModel):
         X = [[seq[idx:idx+self.n_timesteps] for idx in range(len(seq) - self.n_timesteps + 1)] for seq in X]
         X = numpy.array([seq[-1] for seq in X]) #only predict from last ngram in each sequence
 
-        for idx in range(n_words):
+        for idx in range(max_length):
             p_next_words = self.model.predict(X[:, -self.n_timesteps:])
             next_words = self.pred_next_words(p_next_words, mode, n_best, temp)
             X = numpy.append(X, next_words, axis=1)

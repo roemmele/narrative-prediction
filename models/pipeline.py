@@ -1,5 +1,5 @@
 import six, pickle, warnings, os
-from sklearn.pipeline import Pipeline
+# from sklearn.pipeline import Pipeline
 from gensim.models.word2vec import Word2Vec
 from keras.models import load_model
 import transformer
@@ -10,6 +10,16 @@ reload(classifier)
 from classifier import *
 
 warnings.filterwarnings('ignore', category=Warning)
+
+def load_rnn_pipeline(filepath, set_unk_word=False):
+    #import pdb;pdb.set_trace()
+    transformer = load_transformer(filepath)
+    if set_unk_word:
+        transformer.unk_word = u"<UNK>"
+        transformer.lexicon_lookup[1] = transformer.unk_word
+    classifier = load_classifier(filepath)
+    pipeline = RNNPipeline(transformer, classifier)
+    return pipeline
 
 class RNNPipeline():
     def __init__(self, transformer, classifier):
@@ -28,13 +38,13 @@ class RNNPipeline():
     def predict(self, X, y_seqs=None, **params):
         X, y_seqs = self.transformer.transform(X, y_seqs)
         if self.classifier.__class__.__name__ in ('RNNLM', 'MLPLM'):
-            gen_params = {param:value for param,value in params.items() if param != 'cap_tokens'}
+            gen_params = {param:value for param,value in params.items() if param not in ('cap_ents', 'detokenize')}
             if 'eos_tokens' in params:
                 gen_params['eos_tokens'] = self.transformer.lookup_eos(params['eos_tokens']) #convert end-of-sentence markers to indices
             gen_seqs, prob_seqs = self.classifier.predict(X, **gen_params)
-            decode_params = {param:value for param, value in params.items() if param in ('eos_tokens', 'cap_tokens')}
+            decode_params = {param:value for param, value in params.items() if param in ('eos_tokens', 'cap_ents', 'detokenize')}
             print "decoding generated sentences..."
-            gen_seqs = [self.transformer.decode_seqs(seq, **decode_params) for seq in gen_seqs]#, cap_tokens=params['cap_tokens'] if 'cap_tokens' in params else [])#convert from indices back to text
+            gen_seqs = [self.transformer.decode_seqs(seq, **decode_params) for seq in gen_seqs]
             return gen_seqs, prob_seqs
         else:
             return self.classifier.predict(X, y_seqs, **params)
@@ -67,14 +77,14 @@ def load_rnnbinary_pipeline(filepath, embed_filepath='../ROC/AvMaxSim/vectors', 
     return model
 
 
-def generate_sents(lm, context_seqs, batch_size=1, n_best=1, n_words=35, 
-                   mode='max', temp=1.0, eos_tokens=[".", "!", "?"], cap_tokens=[]):
+def generate_sents(lm, context_seqs, batch_size=1, n_best=1, max_length=35, mode='max', 
+                    temp=1.0, eos_tokens=[u".", u"!", u"?"], detokenize=False, cap_ents=[]):
 
     gen_sents, p_sents = lm.predict(X=context_seqs, mode=mode,
                                     batch_size=batch_size, 
-                                    n_best=n_best, n_words=n_words,
+                                    n_best=n_best, max_length=max_length,
                                     temp=temp, eos_tokens=eos_tokens,
-                                    cap_tokens=cap_tokens)
+                                    detokenize=detokenize, cap_ents=cap_ents)
     return gen_sents, p_sents
 
 
@@ -131,7 +141,7 @@ def generate_sents(lm, context_seqs, batch_size=1, n_best=1, n_words=35,
 #         return self.steps[-1][-1].encode(Xt, **kwargs)
 
 
-class AutoencoderPipeline(Pipeline):
+class AutoencoderPipeline():
     #sklearn pipeline won't pass extra parameters other than input data between steps
     def _pre_transform(self, X, y_seqs=None, **fit_params):
         fit_params_steps = dict((step, {}) for step, _ in self.steps)
