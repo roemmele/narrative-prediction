@@ -54,4 +54,21 @@ def eval_all_diffs(model_values, num_trials=10000, verbose=False):
 
 	return p_vals
 
+def eval_all_proportion_diffs(model_pos, model_samples, num_trials=10000, verbose=False):
+	'''takes a set of model proportion values as input, figures out which pairs of models to evaluate 
+	differences for based on the order of their values, and returns p-values for all tests'''
+
+	prop_values = {model:model_pos[model] * 1. / model_samples[model] for model in model_pos}
+	sorted_models = sorted([(numpy.mean(values),model) for model,values in prop_values.items()])
+	model_pairs = [(sorted_models[idx][1], sorted_models[idx+1][1]) for idx in range(len(sorted_models) - 1)]
+
+	p_vals = {}
+
+	for model1,model2 in model_pairs:
+		p_vals[(model1,model2)] = eval_proportion_diff(model_pos[model1], model_pos[model2],
+														model_samples[model1], model_samples[model2], 
+														num_trials=num_trials, verbose=verbose)
+
+	return p_vals
+
 

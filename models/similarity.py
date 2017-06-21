@@ -2,7 +2,7 @@ import os, numpy, pickle
 from gensim import corpora, models, similarities
 from gensim.matutils import Dense2Corpus, dense2vec, cossim
 
-from models.transformer import segment_and_tokenize, tokenize
+from models.transformer import *
 
 import story_corpus
 reload(story_corpus)
@@ -24,20 +24,6 @@ class SequenceYielder():
                 print "retrieved", seq_idx, "sequences..."
             #assert(seq)
             yield seq
-
-            
-# class KeywordIndex():
-#     def __init__(self, keywords):
-#         self.keywords = keywords
-#         print "building keyword index"
-#         self.keyword_dict = corpora.Dictionary([self.keywords])
-#         self.keyword_doc = self.keyword_dict.doc2bow(self.keywords)
-#         self.index = similarities.MatrixSimilarity(corpus=[self.keyword_doc])
-#     def get_scores(self, docs):
-#         docs = [self.keyword_dict.doc2bow(segment_and_tokenize(doc)) for doc in docs]
-#         scores = self.index[docs].flatten()
-#         #score = cossim(self.keyword_doc, docs)
-#         return scores
 
 
 class SimilarityIndex():
@@ -152,17 +138,17 @@ class SimilarityIndex():
         #import pdb;pdb.set_trace()
         self.index.num_best = n_best
         if self.use_tfidf:
-            seqs = [self.tfidf_model[self.lexicon.doc2bow(segment_and_tokenize(seq))] for seq in seqs]
+            seqs = [self.tfidf_model[self.lexicon.doc2bow(tokenize(seq))] for seq in seqs]
         else:
-            seqs = [self.lexicon.doc2bow(segment_and_tokenize(seq)) for seq in seqs]
+            seqs = [self.lexicon.doc2bow(tokenize(seq)) for seq in seqs]
         if self.use_lsi:
             seqs = self.lsi_model[seqs]
         sim_seqs = self.index[seqs]
         sim_idxs = numpy.array([[sim_seq[0] for sim_seq in n_best_seqs] for n_best_seqs in sim_seqs])
         scores = numpy.array([[sim_seq[1] for sim_seq in n_best_seqs] for n_best_seqs in sim_seqs])
-        if len(sim_idxs) == 1:
-            sim_idxs = sim_idxs[0]
-            scores = scores[0]
+        # if len(sim_idxs) == 1:
+        #     sim_idxs = sim_idxs[0]
+        #     scores = scores[0]
         return sim_idxs, scores
 
 class RetrievalIndex():
@@ -208,7 +194,7 @@ class RetrievalIndex():
         else:
             sim_db_ids = [self.seq_ids[idx] for idx in sim_idxs]
         sim_db_ids = numpy.array(sim_db_ids)
-        if len(sim_db_ids) == 1:
-            sim_db_ids = sim_db_ids[0]
+        # if len(sim_db_ids) == 1:
+        #     sim_db_ids = sim_db_ids[0]
         return sim_db_ids
 

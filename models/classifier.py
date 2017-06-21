@@ -18,6 +18,7 @@ def load_classifier(filepath):
     with open(filepath + '/classifier.pkl', 'rb') as f:
         classifier = pickle.load(f)
     classifier.model = load_model(filepath + '/classifier.h5')
+    print "loaded classifier from", filepath + '/classifier.pkl'
     return classifier
 
 
@@ -114,8 +115,8 @@ def resave_classifier_nosklearn(old_classifier):
     new_classifier.lr = old_classifier.lr
     new_classifier.clipvalue = old_classifier.clipvalue
     new_classifier.decay = old_classifier.decay
-    new_classifier.separate_context = old_classifier.separate_context
-    new_classifier.max_sent_length = old_classifier.max_sent_length
+    #new_classifier.separate_context = old_classifier.separate_context
+    #new_classifier.max_seq_length = old_classifier.max_sent_length
     #new_classifier.sample_words = old_classifier.sample_words
     #new_classifier.model = old_classifier.model
     #new_classifier.start_time = old_classifier.start_time
@@ -125,11 +126,9 @@ def resave_classifier_nosklearn(old_classifier):
     #new_classifier.save()
 
 
-
 class RNNLM(SavedModel):#KerasClassifier
     def __init__(self, lexicon_size=None, n_timesteps=None, n_embedding_nodes=300, n_hidden_nodes=250, n_hidden_layers=1,
-                 embeddings=None, batch_size=1, max_sent_length=None, verbose=1, filepath=None,
-                 optimizer='Adam', lr=0.001, clipvalue=5.0, decay=1e-6, separate_context=False):
+                 embeddings=None, batch_size=1, verbose=1, filepath=None, optimizer='Adam', lr=0.001, clipvalue=5.0, decay=1e-6):#, separate_context=False,max_seq_length=None, ):
         
         self.lexicon_size = lexicon_size
         self.n_embedding_nodes = n_embedding_nodes
@@ -144,60 +143,60 @@ class RNNLM(SavedModel):#KerasClassifier
         self.lr = lr
         self.clipvalue = clipvalue
         self.decay = decay
-        self.separate_context = separate_context
-        self.max_sent_length = max_sent_length
+        #self.separate_context = separate_context
+        #self.max_seq_length = max_seq_length
         self.sample_words = None
 
         if self.verbose:
-            print "CREATED RNNLM: embedding layer nodes = {}, hidden layers = {}, " \
+            print "CREATED", self.__class__.__name__, ":embedding layer nodes = {}, hidden layers = {}, " \
                     "hidden layer nodes = {}, optimizer = {} with lr = {}, " \
                     "clipvalue = {}, and decay = {}".format(
-                    self.n_embedding_nodes, self.n_hidden_layers, self.n_hidden_nodes, 
+                    self.n_embedding_nodes, self.n_hidden_layers, self.n_hidden_nodes,
                     self.optimizer, self.lr, self.clipvalue, self.decay)
     
-    def create_model(self, n_timesteps=None, batch_size=1, pred_layer=True):
+    def create_model(self, n_timesteps=None, batch_size=1, include_pred_layer=True):
 
-        if self.separate_context:
+        # if self.separate_context:
 
-            context_input_layer = Input(batch_shape=(batch_size, n_timesteps), 
-                                        dtype='int32', name='context_input_layer')
+        #     context_input_layer = Input(batch_shape=(batch_size, n_timesteps), 
+        #                                 dtype='int32', name='context_input_layer')
 
-            # seq_input_layer = Input(batch_shape=(self.batch_size, n_timesteps), 
-            #                         dtype='int32', name='seq_input_layer')
+        #     # seq_input_layer = Input(batch_shape=(self.batch_size, n_timesteps), 
+        #     #                         dtype='int32', name='seq_input_layer')
 
-            embedded_context_layer = Embedding(input_dim = self.lexicon_size + 1,
-                                        output_dim=self.n_embedding_nodes,
-                                        mask_zero=True, name='embedding_layer')(context_input_layer)
+        #     embedded_context_layer = Embedding(input_dim = self.lexicon_size + 1,
+        #                                 output_dim=self.n_embedding_nodes,
+        #                                 mask_zero=True, name='embedding_layer')(context_input_layer)
 
-            # embedded_seq_layer = embedding_layer(seq_input_layer)
+        #     # embedded_seq_layer = embedding_layer(seq_input_layer)
 
-            context_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(embedded_context_layer)
+        #     context_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(embedded_context_layer)
 
-            repeat_layer = RepeatVector(self.max_sent_length)(context_hidden_layer)
+        #     repeat_layer = RepeatVector(self.max_sent_length)(context_hidden_layer)
 
-            # merge_layer = merge([context_hidden_layer, embedded_seq_layer], mode='concat', concat_axis=-1)
+        #     # merge_layer = merge([context_hidden_layer, embedded_seq_layer], mode='concat', concat_axis=-1)
 
-            seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=False, name='seq_hidden_layer')(repeat_layer)#(context_hidden_layer)#(merge_layer)
+        #     seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=False, name='seq_hidden_layer')(repeat_layer)#(context_hidden_layer)#(merge_layer)
 
-            pred_layer = TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax", name='pred_layer'))(seq_hidden_layer)
+        #     pred_layer = TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax", name='pred_layer'))(seq_hidden_layer)
 
-            model = Model(input=context_input_layer, output=pred_layer)
+        #     model = Model(input=context_input_layer, output=pred_layer)
 
-        else:
+        # else:
         
-            model = Sequential()
-            
-            # if self.embeddings is None:
-            model.add(Embedding(self.lexicon_size + 1, self.n_embedding_nodes,
-                                batch_input_shape=(batch_size, n_timesteps), mask_zero=True))
+        model = Sequential()
+        
+        # if self.embeddings is None:
+        model.add(Embedding(self.lexicon_size + 1, self.n_embedding_nodes,
+                            batch_input_shape=(batch_size, n_timesteps), mask_zero=True))
 
-            for layer_num in xrange(self.n_hidden_layers):
-                model.add(GRU(self.n_hidden_nodes, 
-                              batch_input_shape=(batch_size, n_timesteps, self.n_embedding_nodes),
-                              return_sequences=True, stateful=True))
+        for layer_num in xrange(self.n_hidden_layers):
+            model.add(GRU(self.n_hidden_nodes, 
+                          batch_input_shape=(batch_size, n_timesteps, self.n_embedding_nodes),
+                          return_sequences=True, stateful=True))
 
-            if pred_layer: 
-                model.add(TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax")))
+        if include_pred_layer: 
+            model.add(TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax")))
             
         #select optimizer and compile
         model.compile(loss="sparse_categorical_crossentropy", 
@@ -207,131 +206,108 @@ class RNNLM(SavedModel):#KerasClassifier
     
     def sort_seqs(self, seqs):
         #sort by descending length
-        # if self.embeddings is not None:
-        #     sorted_idxs = numpy.argsort((y > 0).sum(axis=-1))[::-1]
-        # else:
         lengths = [len(seq) for seq in seqs]
-        #sorted_idxs = numpy.argsort((X > 0).sum(axis=-1))[::-1]
         sorted_idxs = numpy.argsort(lengths)#[::-1]
-        #X = X[sorted_idxs]
         seqs = [seqs[idx] for idx in sorted_idxs]
-        # if y is not None:
-            #y = y[sorted_idxs]
-        return seqs#, y
+        return seqs
     
-    def prepend_eos(self, seq):
-        seq = [[seq[sent_idx - 1][-1]] + sent if sent_idx > 0 else sent
-                       for sent_idx, sent in enumerate(seq)]
-        return seq
+    # def prepend_eos(self, seq):
+    #     seq = [[seq[sent_idx - 1][-1]] + sent if sent_idx > 0 else sent
+    #                    for sent_idx, sent in enumerate(seq)]
+    #     return seq
 
-    def fit_epoch(self, X, y, **params):
+    def fit(self, seqs, lexicon_size=None):
         
         if not hasattr(self, 'model'):
-            for param, value in params.items():
-                setattr(self, param, value) #set additional parameters not specified when model obj was initialized (e.g. lexicon size)
+            # for param, value in params.items():
+            #     setattr(self, param, value) #set additional parameters not specified when model obj was initialized (e.g. lexicon size)
+            self.lexicon_size = lexicon_size
             self.model = self.create_model(n_timesteps=self.n_timesteps, batch_size=self.batch_size)
-
             self.start_time = timeit.default_timer()
-            self.epoch = 0
 
         if self.verbose:
-            print("training RNNLM on {} sequences with batch size = {}".format(len(X), self.batch_size))
+            print "training RNNLM on {} sequences with batch size = {}".format(len(seqs), self.batch_size)
         
         train_losses = []
 
-        if self.separate_context:
+        # if self.separate_context:
 
-            context_seqs = [seq[:-1] for seq in X]
-            #unroll context seqs
-            context_seqs = [[word for sent in seq for word in sent] for seq in X]
-            sents = [seq[-1] for seq in X]
-            #sort seqs by length
-            # X = self.sort_seqs(seqs=X)
-            #import pdb;pdb.set_trace()
-            for batch_index in range(0, len(X), self.batch_size):
-                #prep batch
-                batch_context_seqs = get_batch(seqs=context_seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
-                batch_sents = get_batch(seqs=sents[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, padding='post', max_length=self.max_sent_length)
-                train_loss = self.model.train_on_batch(x=batch_context_seqs, y=batch_sents[:, :, None])
-                train_losses.append(train_loss)
-                # self.model.reset_states()                
-                if batch_index and batch_index % 5000 == 0:
-                    print "processed {} sequences in epoch {} ({:.3f}m)...".format(batch_index, self.epoch + 1, (timeit.default_timer() - self.start_time) / 60)
+        #     context_seqs = [seq[:-1] for seq in X]
+        #     #unroll context seqs
+        #     context_seqs = [[word for sent in seq for word in sent] for seq in X]
+        #     sents = [seq[-1] for seq in X]
+        #     #sort seqs by length
+        #     # X = self.sort_seqs(seqs=X)
+        #     #import pdb;pdb.set_trace()
+        #     for batch_index in range(0, len(X), self.batch_size):
+        #         #prep batch
+        #         batch_context_seqs = get_batch(seqs=context_seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
+        #         batch_sents = get_batch(seqs=sents[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, padding='post', max_length=self.max_sent_length)
+        #         train_loss = self.model.train_on_batch(x=batch_context_seqs, y=batch_sents[:, :, None])
+        #         train_losses.append(train_loss)
+        #         # self.model.reset_states()                
+        #         if batch_index and batch_index % 5000 == 0:
+        #             print "processed {} sequences ({:.3f}m)...".format(batch_index, (timeit.default_timer() - self.start_time) / 60)
 
 
-        else:
-            if self.batch_size == 1 and not self.n_timesteps:
-                #process sequences one at a time, one sentence at a time
-                for seq_idx, seq in enumerate(X):
-                    if type(seq[0]) not in (list, numpy.ndarray, tuple):
-                        seq = [seq]
-                    seq = self.prepend_eos(seq)
-                    if y is not None:
-                        y_seq = y[seq_idx]
-                    for sent_idx, sent in enumerate(seq):
-                        #import pdb;pdb.set_trace()
-                        sent_x = numpy.array(sent)
-                        if y is not None:
-                            sent_y = numpy.array(y_seq[sent_idx])
-                        else:
-                            sent_y = sent_x
-                        sent_x = sent_x[None, :-1]
-                        sent_y = sent_y[None, 1:]
-                        sent_y = numpy.expand_dims(sent_y, axis=-1)
-                        assert(sent_x.size > 0 and sent_y.size > 0)
-                        assert(len(sent_x) == len(sent_y))
-                        train_loss = self.model.train_on_batch(x=sent_x, y=sent_y)
-                        train_losses.append(train_loss)
-                    self.model.reset_states()
-                    if (seq_idx + 1) % 1000 == 0:
-                        print("processed {}/{} sequences in epoch {}, loss = {:.3f} ({:.3f}m)...".format(seq_idx + 1, 
-                            len(X), self.epoch + 1, numpy.mean(train_losses), 
-                            (timeit.default_timer() - self.start_time) / 60))
+        # else:
+            # if self.batch_size == 1 and not self.n_timesteps:
+            #     #process sequences one at a time, one sentence at a time
+            #     for seq_idx, seq in enumerate(X):
+            #         if type(seq[0]) not in (list, numpy.ndarray, tuple):
+            #             seq = [seq]
+            #         seq = self.prepend_eos(seq)
+            #         if y is not None:
+            #             y_seq = y[seq_idx]
+            #         for sent_idx, sent in enumerate(seq):
+            #             #import pdb;pdb.set_trace()
+            #             sent_x = numpy.array(sent)
+            #             if y is not None:
+            #                 sent_y = numpy.array(y_seq[sent_idx])
+            #             else:
+            #                 sent_y = sent_x
+            #             sent_x = sent_x[None, :-1]
+            #             sent_y = sent_y[None, 1:]
+            #             sent_y = numpy.expand_dims(sent_y, axis=-1)
+            #             assert(sent_x.size > 0 and sent_y.size > 0)
+            #             assert(len(sent_x) == len(sent_y))
+            #             train_loss = self.model.train_on_batch(x=sent_x, y=sent_y)
+            #             train_losses.append(train_loss)
+            #         self.model.reset_states()
+            #         if (seq_idx + 1) % 1000 == 0:
+            #             print("processed {}/{} sequences, loss = {:.3f} ({:.3f}m)...".format(seq_idx + 1, 
+            #                 len(X), numpy.mean(train_losses), 
+            #                 (timeit.default_timer() - self.start_time) / 60))
                 
-            else:
-                if type(X[0][0]) in (list, tuple, numpy.ndarray):
-                    X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
-                #sort seqs by length
-                X = self.sort_seqs(seqs=X)
-                for batch_index in range(0, len(X), self.batch_size):
-                    #prep batch
-                    batch = get_batch(seqs=X[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
-                    for step_index in xrange(0, batch.shape[-1] - 1, self.n_timesteps):
-                        # if batch.shape[1] - step_index <= self.n_timesteps:
-                        #     #import pdb;pdb.set_trace()
-                        #     batch = self.pad_timesteps(seqs=batch)
-                        batch_x = batch[:, step_index:step_index + self.n_timesteps]
-                        if not numpy.sum(batch_x):
-                            #batch is all zeros, skip
-                            continue
-                        batch_y = batch[:, step_index + 1:step_index + self.n_timesteps + 1, None]
-                        train_loss = self.model.train_on_batch(x=batch_x, y=batch_y)
-                    train_losses.append(train_loss)
-                    self.model.reset_states()                
-                    if batch_index and batch_index % 5000 == 0:
-                        print "processed {} sequences in epoch {}, loss: {:.3f} ({:.3f}m)...".format(batch_index, self.epoch + 1,
-                                                                                                        numpy.mean(train_losses),
-                                                                                                        (timeit.default_timer() - self.start_time) / 60)
+            # else:
+        assert(type(seqs[0][0]) not in (list, tuple, numpy.ndarray))
+        #sort seqs by length
+        seqs = self.sort_seqs(seqs)
+        for batch_index in xrange(0, len(seqs), self.batch_size):
+            #prep batch
+            batch = get_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
+            for step_index in xrange(0, batch.shape[-1] - 1, self.n_timesteps):
+                batch_x = batch[:, step_index:step_index + self.n_timesteps]
+                if not numpy.sum(batch_x):
+                    #batch is all zeros, skip
+                    continue
+                batch_y = batch[:, step_index + 1:step_index + self.n_timesteps + 1, None]
+                train_loss = self.model.train_on_batch(x=batch_x, y=batch_y)
+            train_losses.append(train_loss)
+            self.model.reset_states()                
+            if batch_index and batch_index % 5000 == 0:
+                print "processed {} sequences, loss: {:.3f} ({:.3f}m)...".format(batch_index, numpy.mean(train_losses),
+                                                                                (timeit.default_timer() - self.start_time) / 60)
 
         if self.filepath:
-            #save model after each epoch if filepath given
+            #save model if filepath given
             self.save()
-        self.epoch += 1
         if self.verbose:
-            print("epoch {} loss: {:.3f} ({:.3f}m)".format(self.epoch, numpy.mean(train_losses),
-                                       (timeit.default_timer() - self.start_time) / 60))
-
-    def get_p_next_word(self, seq):
-        if type(seq[0]) not in (list, tuple, numpy.ndarray):
-            seq = [seq]
-        for sent in seq:
-            p_next_word = self.pred_model.predict_on_batch(x=numpy.array(sent)[None])[0][-1]
-        assert(len(p_next_word.shape) == 1)
-        return p_next_word
+            print("loss: {:.3f} ({:.3f}m)".format(numpy.mean(train_losses),
+                                                (timeit.default_timer() - self.start_time) / 60))
 
     def get_batch_p_next_words(self, words):
         p_next_words = self.pred_model.predict_on_batch(x=words[:, None])[:, -1]
-        #assert(len(p_next_word.shape) == 1)
         return p_next_words
 
     def pred_batch_next_words(self, p_next_words, mode='max', n_best=1, temp=1.0, prevent_unk=True):
@@ -374,13 +350,13 @@ class RNNLM(SavedModel):#KerasClassifier
         p_next_words = p_next_words[:, 0]
         return next_words, p_next_words
 
-    def extend_sent(self, sent, words):
+    def extend_seq(self, seq, words):
         #extend sequence with each predicted word
-        new_sents = []
+        new_seqs = []
         for word in words:
-            new_sent = sent + [word]
-            new_sents.append(new_sent)
-        return new_sents
+            new_seq = seq + [word]
+            new_seqs.append(new_seq)
+        return new_seqs
     
     # def embed_sent(self, sent):
     #     embedded_sent = []
@@ -392,36 +368,28 @@ class RNNLM(SavedModel):#KerasClassifier
     #         else:
     #             embedded_sent.append(numpy.zeros((self.n_embedding_nodes)))
     #     return embedded_sent
-    
-    def check_if_eos(self, sent, eos_tokens):
-        #check if an end-of-sentence marker has been generated for this sentence
-        if sent[-1] in eos_tokens:
-            return True
-        return False
 
-    def check_if_null(self, sent):
-        if sent[-1] == 0:
+    def check_if_null(self, seq):
+        if seq[-1] == 0:
             return True
         return False
     
-    def get_best_sents(self, sents, p_sents, n_best):
+    # def get_best_sents(self, seqs, p_sents, n_best):
         
-        best_idxs = numpy.argsort(numpy.array(p_sents))[::-1][:n_best]
-        best_sents = [sents[idx] for idx in best_idxs]
-        #return probs of best sents as well as sents
-        p_sents = numpy.array(p_sents)[best_idxs]
+    #     best_idxs = numpy.argsort(numpy.array(p_sents))[::-1][:n_best]
+    #     best_sents = [sents[idx] for idx in best_idxs]
+    #     #return probs of best sents as well as sents
+    #     p_sents = numpy.array(p_sents)[best_idxs]
         
-        return best_sents, p_sents
+    #     return best_sents, p_sents
         
-    def predict(self, X, y_seqs=None, max_length=20, mode='max', batch_size=1, n_best=1, temp=1.0, eos_tokens=[], prevent_unk=True):
+    def predict(self, seqs, max_length=35, mode='max', batch_size=1, n_best=1, temp=1.0, prevent_unk=True):
 
         if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0]:
-            # if self.batch_size > 1:
-            #if model uses batch training, create a duplicate model with batch size 1 for prediction
-            if self.separate_context:
-                self.pred_model = self.create_model(batch_size=None, n_timesteps=None)
-            else:
-                self.pred_model = self.create_model(batch_size=batch_size, n_timesteps=1)
+            # if self.separate_context:
+            #     self.pred_model = self.create_model(batch_size=None, n_timesteps=None)
+            # else:
+            self.pred_model = self.create_model(batch_size=batch_size, n_timesteps=1)
 
             #set weights of prediction model
             if self.verbose:
@@ -430,171 +398,172 @@ class RNNLM(SavedModel):#KerasClassifier
         self.pred_model.set_weights(self.model.get_weights())
 
 
-        if type(X[0][0]) in [list, tuple, numpy.ndarray]:
-            X = [[word for sent in seq for word in sent] for seq in X]
+        # if type(X[0][0]) in [list, tuple, numpy.ndarray]:
+        #     X = [[word for sent in seq for word in sent] for seq in X]
 
-        if self.separate_context:
+        # if self.separate_context:
 
-            #generate a new word in a given sequence
-            pred_sents = []
-            p_pred_sents = []
-            #merge sents, feed by n_timesteps instead
+        #     #generate a new word in a given sequence
+        #     pred_sents = []
+        #     p_pred_sents = []
+        #     #merge sents, feed by n_timesteps instead
 
-            #generate new sentences       
-            #import pdb;pdb.set_trace()
-            for batch_index in range(0, len(X), batch_size):
-                #prep batch
-                batch = get_batch(seqs=X[batch_index:batch_index + batch_size], batch_size=batch_size)
-                #batch_sents = numpy.zeros((batch_size, max_length), dtype='int64')
-                batch_p_sents = self.pred_model.predict_on_batch(x=batch)
-                if mode == 'max':
-                    batch_sents = numpy.argmax(batch_p_sents, axis=-1)
-                elif mode == 'random':
-                    batch_sents = []
-                    for p_sent in batch_p_sents:
-                        sent = []
-                        for p_word in p_sent:
-                            word = self.sample_words(p_word, 1, temp)[0]
-                            sent.append(word)
-                        batch_sents.append(sent)
-                    batch_sents = numpy.array(batch_sents)
+        #     #generate new sentences       
+        #     #import pdb;pdb.set_trace()
+        #     for batch_index in range(0, len(X), batch_size):
+        #         #prep batch
+        #         batch = get_batch(seqs=X[batch_index:batch_index + batch_size], batch_size=batch_size)
+        #         #batch_sents = numpy.zeros((batch_size, max_length), dtype='int64')
+        #         batch_p_sents = self.pred_model.predict_on_batch(x=batch)
+        #         if mode == 'max':
+        #             batch_sents = numpy.argmax(batch_p_sents, axis=-1)
+        #         elif mode == 'random':
+        #             batch_sents = []
+        #             for p_sent in batch_p_sents:
+        #                 sent = []
+        #                 for p_word in p_sent:
+        #                     word = self.sample_words(p_word, 1, temp)[0]
+        #                     sent.append(word)
+        #                 batch_sents.append(sent)
+        #             batch_sents = numpy.array(batch_sents)
                         
-                batch_p_sents = batch_p_sents[numpy.arange(len(batch_sents))[:,None], numpy.arange(batch_sents.shape[1]), batch_sents]
+        #         batch_p_sents = batch_p_sents[numpy.arange(len(batch_sents))[:,None], numpy.arange(batch_sents.shape[1]), batch_sents]
 
-                if len(X[batch_index:batch_index + batch_size]) < batch_size:
-                    #remove padding if batch was padded
-                    batch_sents = batch_sents[:len(X[batch_index:batch_index + batch_size])]
-                    batch_p_sents = batch_p_sents[:len(X[batch_index:batch_index + batch_size])]
+        #         if len(X[batch_index:batch_index + batch_size]) < batch_size:
+        #             #remove padding if batch was padded
+        #             batch_sents = batch_sents[:len(X[batch_index:batch_index + batch_size])]
+        #             batch_p_sents = batch_p_sents[:len(X[batch_index:batch_index + batch_size])]
 
-                batch_sents = batch_sents.tolist()
-                batch_p_sents = batch_p_sents.tolist()
+        #         batch_sents = batch_sents.tolist()
+        #         batch_p_sents = batch_p_sents.tolist()
 
-                # import pdb;pdb.set_trace()
-                for sent_idx, (sent, p_sent) in enumerate(zip(batch_sents, batch_p_sents)):
-                    # sent_length = len(X[batch_index:batch_index + batch_size][sent_idx])
-                    # sent = sent[-sent_length:]
-                    # p_sent = p_sent[-sent_length:]
-                    for word_idx, word in enumerate(sent):
-                        if word in eos_tokens:
-                            batch_sents[sent_idx] = sent[:word_idx + 1]
-                            p_sent = p_sent[:word_idx + 1]
-                            break
-                    batch_p_sents[sent_idx] = numpy.mean(p_sent)
+        #         # # import pdb;pdb.set_trace()
+        #         # for sent_idx, (sent, p_sent) in enumerate(zip(batch_sents, batch_p_sents)):
+        #         #     # sent_length = len(X[batch_index:batch_index + batch_size][sent_idx])
+        #         #     # sent = sent[-sent_length:]
+        #         #     # p_sent = p_sent[-sent_length:]
+        #         #     for word_idx, word in enumerate(sent):
+        #         #         if word in eos_tokens:
+        #         #             batch_sents[sent_idx] = sent[:word_idx + 1]
+        #         #             p_sent = p_sent[:word_idx + 1]
+        #         #             break
+        #         #     batch_p_sents[sent_idx] = numpy.mean(p_sent)
 
-                pred_sents.extend(batch_sents)
-                p_pred_sents.extend(batch_p_sents)
+        #         pred_sents.extend(batch_sents)
+        #         p_pred_sents.extend(batch_p_sents)
 
-                if batch_index and batch_index % 1000 == 0:
-                    print "generated new sequences for {}/{} inputs...".format(batch_index, len(X))
+        #         if batch_index and batch_index % 1000 == 0:
+        #             print "generated new sequences for {}/{} inputs...".format(batch_index, len(X))
 
-            p_pred_sents = numpy.array(p_pred_sents)
-            return pred_sents, p_pred_sents
+        #     p_pred_sents = numpy.array(p_pred_sents)
+        #     return pred_sents, p_pred_sents
 
-        else:
+        # else:
 
-            if y_seqs is not None:
-                #if y sequences given, return probability of these sequences
-                p_sents = []
 
-                for batch_index in range(0, len(X), batch_size):
-                    #prep batch
-                    batch_x = get_batch(seqs=X[batch_index:batch_index + batch_size], batch_size=batch_size)
-                    batch_y = get_batch(seqs=y_seqs[batch_index:batch_index + batch_size], batch_size=batch_size, padding='post')
-                    batch_p_sents = numpy.zeros((batch_size, batch_y.shape[-1]))
 
-                    #read context
-                    #import pdb;pdb.set_trace()
-                    for step_idx in xrange(batch_x.shape[-1]):
-                        # if batch.shape[1] - step_index <= self.n_timesteps:
-                        #     #import pdb;pdb.set_trace()
-                        #     batch = self.pad_timesteps(seqs=batch)
-                        p_next_words = self.get_batch_p_next_words(words=batch_x[:, step_idx])
+            # else:
+        #generate a new word in a given sequence
+        pred_seqs = []
+        #p_pred_sents = []
 
-                    #now predict
-                    for step_idx in range(batch_y.shape[-1]):
-                        p_next_words = p_next_words[numpy.arange(len(batch_y)), batch_y[:, step_idx]]
-                        batch_p_sents[:, step_idx] = p_next_words
-                        p_next_words = self.get_batch_p_next_words(words=batch_y[:, step_idx])
+        #generate new sentences       
+        #import pdb;pdb.set_trace()
+        for batch_index in xrange(0, len(seqs), batch_size):
+            #prep batch
+            batch = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+            batch_pred_seqs = numpy.zeros((batch_size, max_length), dtype='int64')
+            #batch_p_sents = numpy.zeros((batch_size, max_length))
 
-                    self.pred_model.reset_states()
+            #read context
+            #import pdb;pdb.set_trace()
+            for step_index in xrange(batch.shape[-1]):
+                # if batch.shape[1] - step_index <= self.n_timesteps:
+                #     #import pdb;pdb.set_trace()
+                #     batch = self.pad_timesteps(seqs=batch)
+                p_next_words = self.get_batch_p_next_words(words=batch[:, step_index])
 
-                    if len(X[batch_index:batch_index + batch_size]) < batch_size:
-                        #remove padding if batch was padded
-                        batch_p_sents = batch_p_sents[:len(X[batch_index:batch_index + batch_size])]
+            #now predict
+            for idx in xrange(max_length):
+                next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
+                batch_pred_seqs[:, idx] = next_words
+                #batch_p_sents[:, idx] = p_next_words
+                p_next_words = self.get_batch_p_next_words(words=batch_pred_seqs[:, idx])
+            self.pred_model.reset_states()
 
-                    batch_p_sents = batch_p_sents.tolist()
+            if len(seqs[batch_index:batch_index + batch_size]) < batch_size:
+                #remove padding if batch was padded
+                batch_pred_seqs = batch_pred_seqs[:len(seqs[batch_index:batch_index + batch_size])]
+                #batch_p_sents = batch_p_sents[:len(X[batch_index:batch_index + batch_size])]
+            batch_pred_seqs = batch_pred_seqs.tolist()
+            #batch_p_sents = batch_p_sents.tolist()
+            # import pdb;pdb.set_trace()
+            # for sent_idx, (sent, p_sent) in enumerate(zip(batch_sents, batch_p_sents)):
+            #     for word_idx, word in enumerate(sent):
+            #         if word in eos_tokens:
+            #             batch_sents[sent_idx] = sent[:word_idx + 1]
+            #             p_sent = p_sent[:word_idx + 1]
+            #             break
+            #     batch_p_sents[sent_idx] = numpy.mean(p_sent)
 
-                    #import pdb;pdb.set_trace()
-                    batch_sent_lengths = [len(y_seqs[batch_index:batch_index + batch_size][idx]) for idx in range(len(batch_p_sents))]
-                    batch_p_sents = [p_sent[:sent_length] for p_sent, sent_length in zip(batch_p_sents, batch_sent_lengths)]
-                    batch_p_sents = [numpy.mean(p_sent) for p_sent in batch_p_sents]
+            pred_seqs.extend(batch_pred_seqs)
+            #p_pred_sents.extend(batch_p_sents)
 
-                    p_sents.extend(batch_p_sents)
+            if batch_index and batch_index % 1000 == 0:
+                print "generated new sequences for {}/{} inputs...".format(batch_index, len(seqs))
 
-                return p_sents
+        #p_pred_sents = numpy.array(p_pred_sents)
+        return pred_seqs#, p_pred_sents
 
-            else:
-                #generate a new word in a given sequence
-                pred_sents = []
-                p_pred_sents = []
-                #merge sents, feed by n_timesteps instead
+    def get_probs(self, seqs):
+        '''compute probability of given sequences'''
+        p_seqs = []
 
-                #generate new sentences       
-                #import pdb;pdb.set_trace()
-                for batch_index in range(0, len(X), batch_size):
-                    #prep batch
-                    batch = get_batch(seqs=X[batch_index:batch_index + batch_size], batch_size=batch_size)
-                    batch_sents = numpy.zeros((batch_size, max_length), dtype='int64')
-                    batch_p_sents = numpy.zeros((batch_size, max_length))
+        for batch_index in xrange(0, len(X), batch_size):
+            #prep batch
+            batch_x = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+            batch_y = get_batch(seqs=y_seqs[batch_index:batch_index + batch_size], batch_size=batch_size, padding='post')
+            batch_p_seqs = numpy.zeros((batch_size, batch_y.shape[-1]))
 
-                    #read context
-                    #import pdb;pdb.set_trace()
-                    for step_index in xrange(batch.shape[-1]):
-                        # if batch.shape[1] - step_index <= self.n_timesteps:
-                        #     #import pdb;pdb.set_trace()
-                        #     batch = self.pad_timesteps(seqs=batch)
-                        p_next_words = self.get_batch_p_next_words(words=batch[:, step_index])
+            #read context
+            #import pdb;pdb.set_trace()
+            for step_idx in xrange(batch_x.shape[-1]):
+                # if batch.shape[1] - step_index <= self.n_timesteps:
+                #     #import pdb;pdb.set_trace()
+                #     batch = self.pad_timesteps(seqs=batch)
+                p_next_words = self.get_batch_p_next_words(words=batch_x[:, step_idx])
 
-                    #now predict
-                    for idx in range(max_length):
-                        next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
-                        batch_sents[:, idx] = next_words
-                        batch_p_sents[:, idx] = p_next_words
-                        p_next_words = self.get_batch_p_next_words(words=batch_sents[:, idx])
-                    self.pred_model.reset_states()
+            #now predict
+            for step_idx in xrange(batch_y.shape[-1]):
+                p_next_words = p_next_words[numpy.arange(len(batch_y)), batch_y[:, step_idx]]
+                batch_p_seqs[:, step_idx] = p_next_words
+                p_next_words = self.get_batch_p_next_words(words=batch_y[:, step_idx])
 
-                    if len(X[batch_index:batch_index + batch_size]) < batch_size:
-                        #remove padding if batch was padded
-                        batch_sents = batch_sents[:len(X[batch_index:batch_index + batch_size])]
-                        batch_p_sents = batch_p_sents[:len(X[batch_index:batch_index + batch_size])]
-                    batch_sents = batch_sents.tolist()
-                    batch_p_sents = batch_p_sents.tolist()
-                    # import pdb;pdb.set_trace()
-                    for sent_idx, (sent, p_sent) in enumerate(zip(batch_sents, batch_p_sents)):
-                        for word_idx, word in enumerate(sent):
-                            if word in eos_tokens:
-                                batch_sents[sent_idx] = sent[:word_idx + 1]
-                                p_sent = p_sent[:word_idx + 1]
-                                break
-                        batch_p_sents[sent_idx] = numpy.mean(p_sent)
+            self.pred_model.reset_states()
 
-                    pred_sents.extend(batch_sents)
-                    p_pred_sents.extend(batch_p_sents)
+            if len(X[batch_index:batch_index + batch_size]) < batch_size:
+                #remove padding if batch was padded
+                batch_p_seqs = batch_p_sents[:len(X[batch_index:batch_index + batch_size])]
 
-                    if batch_index and batch_index % 1000 == 0:
-                        print "generated new sequences for {}/{} inputs...".format(batch_index, len(X))
+            batch_p_seqs = batch_p_seqs.tolist()
 
-                p_pred_sents = numpy.array(p_pred_sents)
-                return pred_sents, p_pred_sents
+            #import pdb;pdb.set_trace()
+            batch_seq_lengths = [len(y_seqs[batch_index:batch_index + batch_size][idx]) for idx in xrange(len(batch_p_seqs))]
+            batch_p_seqs = [p_seq[:seq_length] for p_seq, seq_length in zip(batch_p_sents, batch_seq_lengths)]
+            batch_p_seqs = [numpy.mean(p_seq) for p_seq in batch_p_seqs]
 
-    def evaluate(self, X):
+            p_seqs.extend(batch_p_seqs)
+
+        return p_seqs
+
+    def evaluate(self, seqs):
         '''compute prob of given sequences'''
         losses_keras = []
         #losses_self = []
         eval_model = self.create_model(batch_size=self.batch_size)
         eval_model.set_weights(self.model.get_weights())
-        for batch_index in range(0, len(X), self.batch_size):
-            batch = get_batch(seqs=X[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
+        for batch_index in xrange(0, len(seqs), self.batch_size):
+            batch = get_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
             batch_x = batch[:, :-1]
             batch_y = batch[:, 1:]
             # batch_probs = eval_model.predict_on_batch(batch_x)
@@ -623,12 +592,155 @@ class RNNLM(SavedModel):#KerasClassifier
         embeddings = self.model.get_weights()[0]
         return embeddings
 
+
+class FeatureRNNLM(RNNLM):
+    def __init__(self, n_feature_nodes=100, **params):
+        RNNLM.__init__(self, **params)
+        self.n_feature_nodes = n_feature_nodes
+
+    def create_model(self, n_timesteps=1, batch_size=1, include_pred_layer=True):
+
+        seq_input_layer = Input(batch_shape=(batch_size, n_timesteps), name="seq_input_layer")
+        seq_embedding_layer = Embedding(input_dim=self.lexicon_size + 1, 
+                                        output_dim=self.n_embedding_nodes, mask_zero=True, name='seq_embedding_layer')(seq_input_layer)
+        seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=True, name='seq_hidden_layer')(seq_embedding_layer)
+
+        feature_input_layer = Input(batch_shape=(batch_size, self.lexicon_size + 1), name="feature_input_layer")
+        feature_hidden_layer = Dense(output_dim=self.n_feature_nodes, activation='sigmoid', name='feature_hidden_layer')(feature_input_layer)
+
+        #context_hidden_layer = Reshape((1, self.n_hidden_nodes))(context_hidden_layer)
+        feature_hidden_layer = RepeatVector(n_timesteps)(feature_hidden_layer)
+
+        merge_hidden_layer = merge([seq_hidden_layer, feature_hidden_layer], mode='concat', concat_axis=-1, name='merge_hidden_layer')
+
+        if include_pred_layer:
+            pred_layer = TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax"))(merge_hidden_layer)
+
+        model = Model(input=[seq_input_layer, feature_input_layer], output=pred_layer)
+            
+        #select optimizer and compile
+        model.compile(loss="sparse_categorical_crossentropy", 
+                      optimizer=eval(self.optimizer)(clipvalue=self.clipvalue, lr=self.lr, decay=self.decay))
+                
+        return model
+
+    def sort_seqs(self, seqs, feature_vecs):
+        #sort by descending length
+        lengths = [len(seq) for seq in seqs]
+        sorted_idxs = numpy.argsort(lengths)#[::-1]
+        seqs = [seqs[idx] for idx in sorted_idxs]
+        feature_vecs = feature_vecs[sorted_idxs]
+        return seqs, feature_vecs
+
+    def fit(self, seqs, feature_vecs, lexicon_size=None):#, context_size=None):
+
+        #import pdb;pdb.set_trace()
+        
+        if not hasattr(self, 'model'):
+            self.lexicon_size = lexicon_size
+            # self.n_timesteps = 1
+            #self.context_size = lexicon_size
+            self.model = self.create_model(n_timesteps=self.n_timesteps, batch_size=self.batch_size)
+            self.start_time = timeit.default_timer()
+
+        if self.verbose:
+            print("training FeatureRNNLM on {} sequences with batch size = {}".format(len(seqs), self.batch_size))
+        
+        train_losses = []
+
+        # assert(type(seqs[0][0]) not in (list, tuple, numpy.ndarray))
+        assert(len(seqs) == len(feature_vecs))
+        #sort seqs by length
+        seqs, feature_vecs = self.sort_seqs(seqs, feature_vecs)
+        for batch_index in xrange(0, len(seqs), self.batch_size):
+            #prep batch
+            batch = get_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
+            batch_features = feature_vecs[batch_index:batch_index + self.batch_size]
+            #batch_features = self.context_seqs_to_vecs(batch_context)
+            #batch_context = numpy.insert(batch_context, 0, numpy.zeros(len(batch_context)), axis=1) #prepend column of zeros for processing first word of sequence (where no context exists)
+            for step_index in xrange(0, batch.shape[-1] - 1, self.n_timesteps):
+                batch_x = batch[:, step_index:step_index + self.n_timesteps]
+                 #get context for entire sequence up to this point
+                if not numpy.sum(batch_x):
+                    #batch is all zeros, skip
+                    continue
+                batch_y = batch[:, step_index + 1:step_index + self.n_timesteps + 1, None]
+                train_loss = self.model.train_on_batch(x=[batch_x, batch_features], y=batch_y)
+            train_losses.append(train_loss)
+            self.model.reset_states()                
+            if batch_index and batch_index % 5000 == 0:
+                print "processed {} sequences, loss: {:.3f} ({:.3f}m)...".format(batch_index, numpy.mean(train_losses),
+                                                                                (timeit.default_timer() - self.start_time) / 60)
+
+        if self.filepath:
+            #save model if filepath given
+            self.save()
+        if self.verbose:
+            print("loss: {:.3f} ({:.3f}m)".format(numpy.mean(train_losses),
+                                                (timeit.default_timer() - self.start_time) / 60))
+
+    def get_batch_p_next_words(self, words, features):
+        p_next_words = self.pred_model.predict_on_batch(x=[words[:, None], features])[:, -1]
+        return p_next_words
+
+    def predict(self, seqs, feature_vecs, max_length=35, mode='max', batch_size=1, n_best=1, temp=1.0, prevent_unk=True):
+
+        #import pdb;pdb.set_trace()
+
+        if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0][0]:
+            self.pred_model = self.create_model(batch_size=batch_size, n_timesteps=1)
+
+            #set weights of prediction model
+            if self.verbose:
+                print "created predictor model"
+
+        self.pred_model.set_weights(self.model.get_weights())
+
+        pred_seqs = []
+
+        for batch_index in xrange(0, len(seqs), batch_size):
+            #prep batch
+            batch = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+            batch_features = feature_vecs[batch_index:batch_index + batch_size]
+            #batch_features = numpy.insert(batch_features, 0, numpy.zeros(len(batch_features)), axis=1) #prepend column of zeros for processing first word of sequence (where no context exists)
+            
+            batch_pred_seqs = numpy.zeros((batch_size, max_length), dtype='int64')
+
+            for idx in xrange(batch.shape[-1]): #read in given sequence from which to predict
+                p_next_words = self.get_batch_p_next_words(words=batch[:, idx], features=batch_features)
+
+            for idx in xrange(max_length): #now predict
+                next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
+                batch_pred_seqs[:, idx] = next_words
+                #batch_features = numpy.concatenate([batch_features, batch_pred_seqs[:, idx:idx+1]], axis=1) #add new words to context vector
+                p_next_words = self.get_batch_p_next_words(words=batch_pred_seqs[:, idx], features=batch_features)
+            self.pred_model.reset_states()
+
+            if len(seqs[batch_index:batch_index + batch_size]) < batch_size:
+                #remove padding if batch was padded
+                batch_pred_seqs = batch_pred_seqs[:len(seqs[batch_index:batch_index + batch_size])]
+            batch_pred_seqs = batch_pred_seqs.tolist()
+
+            pred_seqs.extend(batch_pred_seqs)
+
+            if batch_index and batch_index % 1000 == 0:
+                print "generated new sequences for {}/{} inputs...".format(batch_index, len(seqs))
+
+        return pred_seqs
+
+    # def context_seqs_to_vecs(self, seqs):
+    #     '''takes sequences of numbers as input and returns bag-of-words vectors'''
+    #     count_vecs = []
+    #     for seq in seqs:
+    #         count_vec = numpy.bincount(numpy.array(seq), minlength=self.lexicon_size + 1)
+    #         count_vecs.append(count_vec)
+    #     count_vecs = numpy.array(count_vecs)
+    #     count_vecs[:,0] = 0 #don't include 0s in vector (0's are words that are not part of context)
+    #     return count_vecs
+
+
 def max_margin(y_true, y_pred):
     return K.sum(K.maximum(0., 1. - y_pred*y_true + y_pred*(1. - y_true)))
-
-
-#class SeqBinaryClassifier(RNNBinaryClassifier):
-
 
 
 class SeqBinaryClassifier(SavedModel, KerasClassifier):
@@ -757,7 +869,7 @@ class SeqBinaryClassifier(SavedModel, KerasClassifier):
             elif len(y_seqs.shape) < 3:
                 y_seqs = y_seqs[:, None, :]
 
-            for choice_idx in range(y_seqs.shape[1]):
+            for choice_idx in xrange(y_seqs.shape[1]):
                 choices = y_seqs[:, choice_idx]
                 probs = self.model.predict([X, choices])[:,-1]
                 probs_y.append(probs)
@@ -768,7 +880,7 @@ class SeqBinaryClassifier(SavedModel, KerasClassifier):
         else:
             for seq, y_seq in zip(X, y_seqs):
                 probs_choice = []
-                for choice_idx in range(len(y_seq)):
+                for choice_idx in xrange(len(y_seq)):
                     #choices = y_seq[choice_idx]
                     probs = self.model.predict([seq[None], y_seq[None, choice_idx]])[:,-1][0]
                     probs_choice.append(probs)
@@ -786,8 +898,6 @@ class SeqBinaryClassifier(SavedModel, KerasClassifier):
     #     get_y_wrt_X = theano.function([self.model.layers[0].input], y_wrt_X)
     #     y_wrt_X_output = get_y_wrt_X(X)
     #     return y_wrt_X_output
-
-
 
 
 class Autoencoder():
@@ -881,19 +991,18 @@ class MLPLM(SavedModel):
                 
         return model
 
-    def fit_epoch(self, X, y=None, **params):
+    def fit(self, seqs, **params):
         if not hasattr(self, 'model'):
             for param, value in params.items():
                 setattr(self, param, value) #set additional parameters not specified when model obj was initialized (e.g. lexicon size)
             self.model = self.create_model(n_timesteps=self.n_timesteps, batch_size=self.batch_size)
-
             self.start_time = timeit.default_timer()
             #self.epoch = 0
 
-        if type(X[0][0]) in [list, tuple, numpy.ndarray]: 
-            X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
+        assert(type(X[0][0]) not in [list, tuple, numpy.ndarray])
+            # X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
 
-        X = [[seq[idx:idx+self.n_timesteps+1] for idx in range(len(seq) - self.n_timesteps)] for seq in X]
+        X = [[seq[idx:idx+self.n_timesteps+1] for idx in xrange(len(seq) - self.n_timesteps)] for seq in seqs]
         X = numpy.array([ngram for seq in X for ngram in seq])
         y = X[:, -1][:, None]
         X = X[:, :-1]
@@ -940,7 +1049,7 @@ class MLPLM(SavedModel):
         #p_next_words = p_next_words[:, 0]
         return next_words#, p_next_words
 
-    def predict(self, X, max_length=20, mode='max', batch_size=1, n_best=1, temp=1.0, eos_tokens=[]):
+    def predict(self, seqs, max_length=35, mode='max', batch_size=1, n_best=1, temp=1.0):
 
         # if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0]:
         #     # if self.batch_size > 1:
@@ -953,41 +1062,41 @@ class MLPLM(SavedModel):
 
        # self.pred_model.set_weights(self.model.get_weights())
 
-        if type(X[0][0]) in [list, tuple, numpy.ndarray]: 
-            X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
+        assert(type(X[0][0]) not in [list, tuple, numpy.ndarray])
+            # X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
 
-        X = [[seq[idx:idx+self.n_timesteps] for idx in range(len(seq) - self.n_timesteps + 1)] for seq in X]
+        X = [[seq[idx:idx+self.n_timesteps] for idx in xrange(len(seq) - self.n_timesteps + 1)] for seq in seqs]
         X = numpy.array([seq[-1] for seq in X]) #only predict from last ngram in each sequence
 
-        for idx in range(max_length):
+        for idx in xrange(max_length):
             p_next_words = self.model.predict(X[:, -self.n_timesteps:])
             next_words = self.pred_next_words(p_next_words, mode, n_best, temp)
             X = numpy.append(X, next_words, axis=1)
 
         X = X[:, self.n_timesteps:]
-        pred_sents = []
-        for sent in X:
-            for word_idx, word in enumerate(sent):
-                if word in eos_tokens:
-                    sent = sent[:word_idx + 1]
-                    #p_sent = p_sent[:word_idx + 1]
-                    break
-            pred_sents.append(sent)
+        pred_seqs = list(X)
+        # for sent in X:
+        #     # for word_idx, word in enumerate(sent):
+        #     #     if word in eos_tokens:
+        #     #         sent = sent[:word_idx + 1]
+        #     #         #p_sent = p_sent[:word_idx + 1]
+        #     #         break
+        #     pred_sents.append(sent)
 
         #p_pred_sents = numpy.array(p_pred_sents)
-        return pred_sents, None #None is placeholder for probability (not yet implemented)
+        return pred_seqs#, None #None is placeholder for probability (not yet implemented)
 
-    def evaluate(self, X):
+    def evaluate(self, seqs):
         '''compute prob of given sequences'''
         losses = []
         #losses_self = []
         # eval_model = self.create_model(batch_size=self.batch_size)
         # eval_model.set_weights(self.model.get_weights())
 
-        if type(X[0][0]) in [list, tuple, numpy.ndarray]: 
-            X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
+        assert(type(X[0][0]) not in [list, tuple, numpy.ndarray])
+            # X = [[word for sent in seq for word in sent] for seq in X] #merge sents, feed by n_timesteps instead
 
-        X = [[seq[idx:idx+self.n_timesteps+1] for idx in range(len(seq) - self.n_timesteps)] for seq in X]
+        X = [[seq[idx:idx+self.n_timesteps+1] for idx in xrange(len(seq) - self.n_timesteps)] for seq in seqs]
         X = numpy.array([ngram for seq in X for ngram in seq])
         y = X[:, -1][:, None]
         X = X[:, :-1]
@@ -1116,11 +1225,11 @@ class Seq2SeqClassifier(KerasClassifier):
                 print n_batches, "batches with", self.batch_size, "sequences per batch"
             start_time = timeit.default_timer()
             min_loss = numpy.inf
-            for epoch in range(nb_epoch):
+            for epoch in xrange(nb_epoch):
                 train_losses = []
-                for batch_index in range(0, len(X), self.batch_size):
+                for batch_index in xrange(0, len(X), self.batch_size):
                     batch_num = batch_index / self.batch_size + 1
-                    for sent_index in range(X.shape[1]):
+                    for sent_index in xrange(X.shape[1]):
                         batch_X = X[batch_index:batch_index + self.batch_size, sent_index]
                         batch_y = y[batch_index:batch_index + self.batch_size, sent_index]
                         assert(len(batch_X) == len(batch_y))
@@ -1169,8 +1278,8 @@ class Seq2SeqClassifier(KerasClassifier):
             #iterate through sentences as input-output
             #import pdb;pdb.set_trace()
             probs_y = []
-            for batch_index in range(0, len(X), self.batch_size):
-                for sent_index in range(X.shape[1]):
+            for batch_index in xrange(0, len(X), self.batch_size):
+                for sent_index in xrange(X.shape[1]):
                     batch_X = X[batch_index:batch_index + self.batch_size, sent_index]
                     if len(batch_X) < self.batch_size:
                         #too few sequences for batch, so add extra rows
@@ -1186,7 +1295,7 @@ class Seq2SeqClassifier(KerasClassifier):
                 batch_choices = y_choices[batch_index:batch_index + self.batch_size]
                 assert(len(batch_X) == len(batch_choices))
                 batch_probs_y = []
-                for choice_index in range(batch_choices.shape[1]):
+                for choice_index in xrange(batch_choices.shape[1]):
                     #import pdb;pdb.set_trace()
                     #evaluate each choice based on predicted probabilites from most recent sentence
                     batch_choice = batch_choices[:, choice_index]

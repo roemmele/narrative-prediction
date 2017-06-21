@@ -151,7 +151,7 @@ def extract_ngrams(seqs, n):
         seqs = [seq for seqs_ in seqs for seq in seqs_]
     #seqs, _ = transformer.transform(seqs)
     for seq in seqs:
-        seq = segment_and_tokenize(seq)
+        seq = tokenize(seq)
         seq_ngrams = [tuple(seq[idx:idx+n]) for idx in range(len(seq) - (n - 1))]
         for ngram in seq_ngrams:
             if ngram not in ngrams:
