@@ -1,4 +1,4 @@
-import sys, numpy, pandas
+import sys, os, numpy, pandas
 
 from scipy.spatial.distance import cosine
 
@@ -14,9 +14,8 @@ import models.ngram
 reload(models.ngram)
 from models.ngram import *
 
-# sys.path.append('../Bleu-master')
-# sys.path.append('Bleu-master')
-# from calculatebleu import *
+from models.narrative_pmi.narrative_dataset import Narrative_Dataset
+from models.narrative_pmi.pmi import PMI_Model
 
 sys.path.append('skip-thoughts-master/')
 sys.path.append('../skip-thoughts-master/')
@@ -27,11 +26,12 @@ from nltk.translate.bleu_score import *
 from pycorenlp import StanfordCoreNLP
 corenlp = StanfordCoreNLP('http://localhost:9000')
 
-sys.path.append('../grammaticality-metrics-master/codalab/scoring_program')
-sys.path.append('grammaticality-metrics-master/codalab/scoring_program')
-import evaluate
-reload(evaluate)
-from evaluate import call_lt
+from subprocess import Popen, PIPE
+#import m2scorer.scripts.levenshtein as ld
+#from gleu import GLEU
+#from m2scorer.m2scorer import load_annotation as load_m2_annotation
+#from imeasure.ieval import IMeasure
+
 
 skipthoughts_transformer = None
 google_word2vec = None
@@ -45,6 +45,7 @@ def check_seqs_format(seqs):
     return seqs
 
 def get_seq_lengths(gen_seqs):
+    '''return the length of each generated sequence in terms of number of words'''
     gen_seqs = check_seqs_format(gen_seqs)
     lengths = []
     for gen_seqs_ in gen_seqs:
@@ -53,9 +54,13 @@ def get_seq_lengths(gen_seqs):
     lengths = numpy.array(lengths)
     return {'lengths':lengths, 'mean_length': numpy.mean(lengths)}
 
-def get_bleu_scores(gen_seqs, gold_seqs, verbose=False):
-    '''compute bleu scores of generated sequences relative to gold'''
+def get_perplexity(seqs):
+    '''return the perplexity of these sequences'''
+    return
 
+
+def get_bleu_scores(gen_seqs, gold_seqs, verbose=False):
+    '''compute bleu scores of generated sequences relative to their gold counterparts'''
     gen_seqs = check_seqs_format(gen_seqs)
     gold_seqs = check_seqs_format(gold_seqs)
     bleu_scores = []
@@ -69,32 +74,42 @@ def get_bleu_scores(gen_seqs, gold_seqs, verbose=False):
     return {'bleu_scores': bleu_scores, 'mean_bleu_scores': numpy.mean(bleu_scores)}
 
 
-def get_verified_ngrams(transformer, gen_seqs, n, db_filepath):
-    '''return the ngrams in gen_seqs that also occur in another corpus of n-grams (in db_filepath)'''
-
+def get_ngrams(gen_seqs, n, lexicon_filepath='data/blog_lexicon.pkl', db_filepath='data/blog_ngrams.db'):
+    '''return the ngrams in gen_seqs with counts for often each occurs in another corpus of n-grams (the sqlite database in db_filepath);
+    since n-grams as stored as word indices in this db, lexicon_filepath is the pickled dictionary that converts words to indices'''
     gen_seqs = check_seqs_format(gen_seqs)
-    verified_ngrams = {}
+    gen_ngrams = {}
+    #n_total_unique_ngrams = 0
     for seqs in gen_seqs:
         ngrams = extract_ngrams(seqs, n)
-        counts = get_ngram_counts(transformer, ngrams, db_filepath)
+        #n_total_unique_ngrams += len(ngrams)
+        counts = get_ngram_counts_from_db(ngrams, lexicon_filepath, db_filepath)
         for ngram,count in zip(ngrams, counts):
-            if count:
-                if ngram in verified_ngrams:
-                    verified_ngrams[ngram] += count
-                else:
-                    verified_ngrams[ngram] = count
-    return verified_ngrams
+            if ngram in gen_ngrams:
+                gen_ngrams[ngram] += count
+            else:
+                gen_ngrams[ngram] = count
+    return gen_ngrams#, n_total_unique_ngrams
 
-def get_n_ngrams(gen_seqs, n):
-    '''return the total number of ngrams and total number of unique ngrams'''
-    gen_seqs = check_seqs_format(gen_seqs)
-    unique_ngrams = set()
-    n_ngrams = 0
-    for seqs in gen_seqs:
-        seq_ngrams = extract_ngrams(seqs, n)
-        n_ngrams += len(seq_ngrams)
-        unique_ngrams.update(seq_ngrams)
-    return {"total":n_ngrams, "unique":len(unique_ngrams)}
+def get_n_ngrams(gen_seqs, n, lexicon_filepath='data/blog_lexicon.pkl', db_filepath='data/blog_ngrams.db'):
+    '''return the number of unique ngrams (of length n) in the generated sequences that also appear in another corpus (see above); 
+    result includes total number of unique ngrams in generated sequences, total number verified (i.e. have at least one occurence in outside corpus), 
+    and the proportion of verified to total'''
+    gen_ngrams = get_ngrams(gen_seqs, n, lexicon_filepath, db_filepath)
+    n_ngrams = len(gen_ngrams)
+    n_verified_ngrams = numpy.sum(numpy.array(gen_ngrams.values()) > 0)
+    return {"n_verified": n_verified_ngrams, "n_total": n_ngrams, "ratio": n_verified_ngrams * 1. / n_ngrams}
+
+# def get_n_ngrams(gen_seqs, n):
+#     '''return the total number of ngrams and total number of unique ngrams in the generated sequences'''
+#     gen_seqs = check_seqs_format(gen_seqs)
+#     unique_ngrams = set()
+#     n_ngrams = 0
+#     for seqs in gen_seqs:
+#         seq_ngrams = extract_ngrams(seqs, n)
+#         n_ngrams += len(seq_ngrams)
+#         unique_ngrams.update(seq_ngrams)
+#     return {"total":n_ngrams, "unique":len(unique_ngrams)}
 
 def get_phrases(gen_seq):
     '''given a generated sequence, return all bigrams (phrases) that have entries in google word2vec'''
@@ -103,22 +118,40 @@ def get_phrases(gen_seq):
         print "\nloading google word2vec model..."
         google_word2vec = Word2Vec.load("data/google.vectors", mmap='r')
     phrases = []
+    bigrams = []
     gen_seq = tokenize(gen_seq, lowercase=False)
     for idx in xrange(0, len(gen_seq) - 1, 2):
         bigram = gen_seq[idx:idx+2] #phrases in this model are represented as Word1_Word2 (case-sensitive)
+        bigrams.append(" ".join(bigram))
         if "_".join(bigram) in google_word2vec:
             phrases.append(" ".join(bigram))
-    return phrases
+    return bigrams, phrases
 
 def get_phrase_counts(gen_seqs):
-    '''return number of phrases per sequence'''
+    '''return number of total unique two-word phrases and phrases per generated sequence (phrase rate, where phrases are bigrams that have word2vec representations; see above)'''
     gen_seqs = check_seqs_format(gen_seqs)
-    n_phrases = []
+    gen_bigrams = {}
+    gen_phrases = {}
+    gen_n_phrases = []
     for gen_seqs_ in gen_seqs:
-        n_phrases_ = [len(get_phrases(gen_seq)) for gen_seq in gen_seqs_]
-        n_phrases.append(n_phrases_)
-    n_phrases = numpy.array(n_phrases)
-    return {'n_phrases':n_phrases, 'mean_n_phrases':numpy.mean(n_phrases)}
+        n_phrases = []
+        for gen_seq in gen_seqs_:
+            bigrams, phrases = get_phrases(gen_seq)
+            for bigram in bigrams:
+                if bigram in gen_bigrams:
+                    gen_bigrams[bigram] += 1
+                else:
+                    gen_bigrams[bigram] = 1
+            for phrase in phrases:
+                if phrase in gen_phrases:
+                    gen_phrases[phrase] += 1
+                else:
+                    gen_phrases[phrase] = 1
+            n_phrases.append(len(phrases))
+        gen_n_phrases.append(n_phrases)
+    gen_n_phrases = numpy.array(gen_n_phrases)
+    return {'phrase_rates':gen_n_phrases, 'mean_phrase_rates':numpy.mean(gen_n_phrases), 'n_bigrams': len(gen_bigrams), 
+            'n_phrases': len(gen_phrases), 'phrase_bigram_ratio': len(gen_phrases) * 1. / len(gen_bigrams)}
 
 
 # def get_phrases(seqs, min_count=5, threshold=10):
@@ -165,7 +198,7 @@ def get_candidate_phrases(gen_sents):
     return cand_phrases
 
 def get_word_pairs(context_seq, gen_seq, include_pos=['ADJ', 'ADV', 'INTJ', 'NOUN', 'PRON', 'PROPN', 'VERB']):
-    '''get all word pairs between context sequence and generated sequence'''
+    '''get all word pairs between each context sequence and corresponding generated sequence'''
     context_seq = encoder(context_seq)
     gen_seq = encoder(gen_seq)
     context_seq = extract.words(context_seq, include_pos=include_pos)
@@ -177,6 +210,7 @@ def get_word_pairs(context_seq, gen_seq, include_pos=['ADJ', 'ADV', 'INTJ', 'NOU
     return pairs
 
 def get_jaccard_sim(context_seq, gen_seq, include_pos=['ADJ', 'ADV', 'INTJ', 'NOUN', 'PRON', 'PROPN', 'VERB']):
+    '''return the jaccard similarity between a context and generated sequence, optionally filtering by words with specific part-of-speech tags'''
     context_words = set([word.string.lower().strip() for word in extract.words(encoder(context_seq), include_pos=include_pos)])
     gen_seq_words = set([word.string.lower().strip() for word in extract.words(encoder(gen_seq), include_pos=include_pos)])
     if not len(context_words) and not len(gen_seq_words):
@@ -187,6 +221,8 @@ def get_jaccard_sim(context_seq, gen_seq, include_pos=['ADJ', 'ADV', 'INTJ', 'NO
     return jaccard_sim
 
 def get_word2vec_sim(context_seq, gen_seq):
+    '''return the word2vec cosine similarity between the context and each generated sequence 
+    (where the word2vec representation for a sequence is just the average of its word vectors)'''
     word_pairs = get_word_pairs(context_seq, gen_seq)
     if word_pairs:
         pair_scores = [similarity.word2vec(encoder(word1),encoder(word2)) for word1,word2 in word_pairs]
@@ -197,7 +233,7 @@ def get_word2vec_sim(context_seq, gen_seq):
     return word2vec_sim
 
 def get_lexical_sim(context_seqs, gen_seqs, verbose=False):
-    '''compute average word2vec and jaccard similarity between all pairs of words between context and generated sequences'''
+    '''compute average word2vec and jaccard similarity between all pairs of words between each context and corresponding generated sequence'''
     assert(len(context_seqs) == len(gen_seqs))
     gen_seqs = check_seqs_format(gen_seqs)
     sim_word2vec_scores = []
@@ -220,6 +256,7 @@ def get_lexical_sim(context_seqs, gen_seqs, verbose=False):
             'mean_word2vec':numpy.mean(sim_word2vec_scores), 'mean_jaccard':numpy.mean(sim_jaccard_scores)}
 
 def get_skipthought_similarity(context_seqs, gen_seqs, verbose=False):
+    '''return the cosine similarity between the mean of the skipthought (sentence) vectors for each context and corresponding generated sequence'''
     assert(len(context_seqs) == len(gen_seqs))
     gen_seqs = check_seqs_format(gen_seqs)
     global skipthoughts_transformer
@@ -247,7 +284,8 @@ def get_skipthought_similarity(context_seqs, gen_seqs, verbose=False):
 
     return {'skipthought_scores': sim_scores, 'mean_skipthought_scores': numpy.mean(sim_scores)}
 
-def get_corefs(context_seqs, gen_seqs, verbose=False): # gen_ents=None, 
+def get_corefs(context_seqs, gen_seqs, verbose=False):
+    '''return all the entities in each generated sequence that co-ref to an entity in the corresponding context'''
     assert(len(context_seqs) == len(gen_seqs))
     assert(type(gen_seqs) in (list,tuple) and type(context_seqs) in (list,tuple))
 
@@ -259,25 +297,26 @@ def get_corefs(context_seqs, gen_seqs, verbose=False): # gen_ents=None,
         n_sents_in_context = len(segment(context_seq))
         gen_corefs = []
         for gen_seq in gen_seqs_:
+            seq_corefs = []
             try:
                 parse = corenlp.annotate((context_seq + " " + gen_seq).encode('utf-8',errors='replace'),\
                                          properties={'annotators': 'coref', 'outputFormat': 'json'})
             except:
                 print "error:", context_seq + " " + gen_seq
-                #parse = {}
-            sents = parse['sentences']
-            seq_corefs = []
-            for coref_ent_idx, coref_ent in parse['corefs'].items():
-                mentions = {'rep_mention':None, 'context_mentions':[], 'gen_mentions':[]}
-                for mention in coref_ent:
-                    if mention['isRepresentativeMention']:
-                        mentions['rep_mention'] = (mention['sentNum'], mention['text'])
-                    if mention['sentNum'] > n_sents_in_context: #mention is in generated sequence
-                        mentions['gen_mentions'].append((mention['sentNum'], mention['text']))
-                    elif mention['sentNum'] <= n_sents_in_context:
-                        mentions['context_mentions'].append((mention['sentNum'], mention['text']))
-                if mentions['context_mentions']: #only count corefs between context and generated sequence, not corefs only within generated sequence
-                    seq_corefs.append(mentions)
+                parse = None
+            if type(parse) is dict:
+                #sents = parse['sentences']
+                for coref_ent_idx, coref_ent in parse['corefs'].items():
+                    mentions = {'rep_mention':None, 'context_mentions':[], 'gen_mentions':[]}
+                    for mention in coref_ent:
+                        if mention['isRepresentativeMention']:
+                            mentions['rep_mention'] = (mention['sentNum'], mention['text'])
+                        if mention['sentNum'] > n_sents_in_context: #mention is in generated sequence
+                            mentions['gen_mentions'].append((mention['sentNum'], mention['text']))
+                        elif mention['sentNum'] <= n_sents_in_context:
+                            mentions['context_mentions'].append((mention['sentNum'], mention['text']))
+                    if mentions['context_mentions']: #only count corefs between context and generated sequence, not corefs only within generated sequence
+                        seq_corefs.append(mentions)
             gen_corefs.append(seq_corefs)
         if verbose and context_seq_idx % 500 == 0:
             print "processed coreferences in", context_seq_idx, "sequences..."
@@ -286,6 +325,8 @@ def get_corefs(context_seqs, gen_seqs, verbose=False): # gen_ents=None,
     return corefs
 
 def get_coref_counts(context_seqs, gen_seqs):
+    '''return 1) the number of entities (noun chunks) in each generated sequence, 2) the number of entities in each generated sequence that co-refer to entities in its context,
+    and 3) the proportion of entities in each generated sequence that co-refer to entities in the corresponding context'''
     assert(len(context_seqs) == len(gen_seqs))
     counts = {'corefs':[], 'prev_mention_sents':[]}
 
@@ -319,6 +360,7 @@ def get_coref_counts(context_seqs, gen_seqs):
     #counts['ents'] = numpy.array(counts['ents'])
     counts['mean_ents'] = numpy.mean(counts['ents'])
     counts['corefs'] = numpy.array(counts['corefs'])
+    counts['ents'] = numpy.maximum(counts['ents'], counts['corefs']) #don't let number of entities exceed the number of coreferences
     counts['mean_corefs'] = numpy.mean(counts['corefs'])
     counts['res_rates'] = numpy.nan_to_num(counts['corefs'] * 1. / counts['ents'])
     counts['mean_res_rates'] = numpy.mean(counts['res_rates'])
@@ -326,20 +368,54 @@ def get_coref_counts(context_seqs, gen_seqs):
     return counts
 
 def get_grammaticality_scores(gen_seqs):
+    '''return grammaticality scores for generated sequences, using Language Tool to compute scores'''
     gen_seqs = check_seqs_format(gen_seqs)
     n_gen_seqs = len(gen_seqs)
     n_gen_per_seq = len(gen_seqs[0])
     gen_seqs = [segment(gen_seq) for gen_seqs_ in gen_seqs for gen_seq in gen_seqs_] #flatten into list of sentences, because grammaticality tool assigns score per single entence
     n_sents_per_seq = numpy.array([len(seq) for seq in gen_seqs]) #keep track of number of sentences
-    grammaticality_scores = call_lt([sent.replace("\n", " ") for gen_seq in gen_seqs for sent in gen_seq]) #this tool can't handle line breaks in sentences, so replace them
+    #scorer = grammar_check.LanguageTool('en-US')
+    gram_scores = _get_LT_scores([sent.replace("\n", " ") for gen_seq in gen_seqs for sent in gen_seq]) #this tool can't handle line breaks in sentences, so replace them
+    #get total number of errors in each sentence, then divide errors by sentence length; subtract from 1, thus score of 1 indicates no errors
+    #gram_scores = numpy.array([1 - len(scorer.check(sent.replace("\n", " "))) * 1. / len(tokenize(sent)) for gen_seq in gen_seqs for sent in gen_seq])
     #restructure sents into sequences, so score per sequence will be mean of sentence scores
     idxs = [numpy.sum(n_sents_per_seq[:idx]) for idx in xrange(len(n_sents_per_seq))] + [None] #add -1 for last entry
-    grammaticality_scores = numpy.array([numpy.mean(grammaticality_scores[idxs[start]:idxs[start+1]]) for start in xrange(len(idxs) - 1)])
-    grammaticality_scores = grammaticality_scores.reshape(n_gen_seqs, n_gen_per_seq)
-    return {'gram_scores':grammaticality_scores, 'mean_gram_scores':numpy.mean(grammaticality_scores)}
+    gram_scores = numpy.array([numpy.mean(gram_scores[idxs[start]:idxs[start+1]]) for start in xrange(len(idxs) - 1)])
+    gram_scores = gram_scores.reshape(n_gen_seqs, n_gen_per_seq)
+    return {'gram_scores':gram_scores, 'mean_gram_scores':numpy.mean(gram_scores)}
+
+
+def _get_LT_scores(sentences, debug=False):
+    '''counts errors with an external call to LanguageTool; this code was borrowed from
+    https://github.com/cnap/grammaticality-metrics/blob/master/codalab/scoring_program/evaluate.py'''
+    # sys.stderr.write('Running LanguageTool...\n')
+    if debug:
+        sys.stderr.write('Java info: %s %s\n' %
+                         (os.system('which java'), os.system('java -version')))
+    process = Popen(['java', '-Dfile.encoding=utf-8',
+                     '-jar', os.path.join(os.getcwd(), 'LanguageTool-3.1/languagetool-commandline.jar'),
+                     '-d', 'COMMA_PARENTHESIS_WHITESPACE,WHITESPACE_RULE,' +
+                     'EN_UNPAIRED_BRACKETS,EN_QUOTES',
+                     '-b', '-l', 'en-US', '-c', 'utf-8'],
+                    stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    ret = process.communicate(input=('\n'.join(sentences)).encode('utf-8'))
+    if debug:
+        sys.stderr.write('LT out: %s\n' % str(ret))
+    error_counts = [0] * len(sentences)
+    for l in ret[0].split('\n'):
+        if 'Rule ID' in l:
+            ll = l.split()
+            ind = (int(ll[2][:-1]) - 1)
+            error_counts[ind] += 1
+    _token_counts = [len(s.split()) for s in sentences]
+    token_counts = numpy.array([num_toks if num_toks > 0 else 1 for num_toks in _token_counts],
+                            dtype=float)
+    error_counts = numpy.array(error_counts, dtype=float)
+
+    return 1 - numpy.divide(error_counts, token_counts)
 
 def get_type_token_ratio(gen_seqs, lexicon=None):
-    '''if lexicon given, only consider words in lexicon'''
+    '''return proportion of unique words to total word occurences across generated sequences; if lexicon given, only consider words in lexicon'''
     gen_seqs = check_seqs_format(gen_seqs)
     token_counts = {}
     for seqs in gen_seqs:
@@ -377,6 +453,7 @@ def get_unique_ngram_ratio(gen_seqs, n=3, lexicon=None):
     return {'n_unique':n_unique, 'n_total':n_total, 'ratio':ratio}
 
 def get_pos_ngram_similarity(context_seqs, gen_seqs, n=3):
+    '''return jaccard similarity between n-grams in each context sequence and corresponding generated sequence'''
     assert(len(context_seqs) == len(gen_seqs))
     gen_seqs = check_seqs_format(gen_seqs)
     pos_sim_scores = []
@@ -390,7 +467,6 @@ def get_pos_ngram_similarity(context_seqs, gen_seqs, n=3):
             if gen_pos_ngrams:
                 common_pos_ngrams = context_pos_ngrams.intersection(gen_pos_ngrams)
                 score = len(common_pos_ngrams) * 1. / (len(context_pos_ngrams) + len(gen_pos_ngrams) - len(common_pos_ngrams))
-                #score = len([ngram for ngram in gen_pos_ngrams if ngram in set(context_pos_ngrams)]) * 1. / len(gen_pos_ngrams)
             else:
                 score = 0.0
             scores.append(score)
@@ -481,7 +557,7 @@ def get_svo_complexity(gen_seqs):
     return {'n_svos':n_svos, 'mean_n_svos':numpy.mean(n_svos)}
 
 def get_frequency_scores(gen_seqs):
-    '''use spacy's word frequency stats to get average unigram frequencies across words in a sequence'''
+    '''use spacy's word frequency stats to get average unigram frequencies across words in each sequence'''
     gen_seqs = check_seqs_format(gen_seqs)
     freq_scores = []
     for gen_seqs_ in gen_seqs:
@@ -495,11 +571,12 @@ def get_frequency_scores(gen_seqs):
     return {'freq_scores':freq_scores, 'mean_freq_scores':numpy.mean(freq_scores)}
 
 def get_lsm_scores(context_seqs, gen_seqs):
-    '''get similarity between context and generated sequences in terms of part-of-speech category distribution (i.e. similarity in frequency distributions of each tag in context and generated sequence)'''
+    '''get similarity between context sequences and generated sequences in terms of part-of-speech category distribution
+    (i.e. similarity in frequency distributions of each tag in context and generated sequence)'''
     assert(len(context_seqs) == len(gen_seqs))
     gen_seqs = check_seqs_format(gen_seqs)
     categories = {'nouns':('NOUN','PROPN'), 'adjectives': ('ADJ',), 'adverbs':('ADV',), 'conjunctions':('CONJ','SCONJ'), 'determiners': ('DET',),\
-                'prepositions': ('ADP',), 'pronouns':('PRON',), 'punctuation':('PUNCT',), 'verbs': ('VERB',)}#, 'auxillary_verbs':('AUX',)}
+                'prepositions': ('ADP',), 'pronouns':('PRON',), 'punctuation':('PUNCT',), 'verbs': ('VERB',)}
     tags_to_cats = {tag:category for category,tags in categories.items() for tag in tags}
 
     lsm_scores = {cat:[] for cat in categories}
@@ -529,6 +606,41 @@ def get_lsm_scores(context_seqs, gen_seqs):
     lsm_means = {category + '_mean':numpy.mean(scores) for category,scores in lsm_scores.items()}
     lsm_scores.update(lsm_means)
     return lsm_scores
+
+def get_sentiment_sim(context_seqs, gen_seqs):
+    '''return the cosine similarity between the sentiment scores of each context and corresponding generated sequence;
+    the sentiment scores are given in spacy'''
+    gen_seqs = check_seqs_format(gen_seqs)
+    emotion_types = ['AFRAID', 'AMUSED', 'ANGRY', 'ANNOYED', 'DONT_CARE', 'HAPPY', 'INSPIRED', 'SAD']
+    gen_sentiment_sim_scores = []
+    for context_seq, gen_seqs_ in zip(context_seqs, gen_seqs):
+        context_sentiment = lexicon_methods.emotional_valence(encoder(context_seq))
+        context_sentiment = numpy.array([context_sentiment[emotion_type] for emotion_type in emotion_types]) + 1e-8 #add tiny number to avoid NaN when all scores are 0
+        sentiment_sim_scores = []
+        for gen_seq in gen_seqs_:
+            gen_sentiment = lexicon_methods.emotional_valence(encoder(gen_seq))
+            gen_sentiment = numpy.array([gen_sentiment[emotion_type] for emotion_type in emotion_types]) + 1e-8 #add tiny number to avoid NaN when all scores are 0
+            sentiment_sim = 1 - cosine(context_sentiment, gen_sentiment)
+            sentiment_sim_scores.append(sentiment_sim)
+        gen_sentiment_sim_scores.append(sentiment_sim_scores)
+
+    gen_sentiment_sim_scores = numpy.array(gen_sentiment_sim_scores)
+    return {'sentiment_sim_scores': gen_sentiment_sim_scores, 'mean_sentiment_sim_scores': numpy.mean(gen_sentiment_sim_scores)}
+
+def get_pmi_scores(context_seqs, gen_seqs, model_filepath='data/narrative_dataset_1million'):
+    dataset = Narrative_Dataset(model_filepath)
+    model = PMI_Model(dataset)
+    pmi_scores = []
+    for context_seq, gen_seqs_ in zip(context_seqs, gen_seqs):
+        encoded_context_seq = dataset.encode_sequence(context_seq)
+        scores = []
+        for gen_seq in gen_seqs_:
+            encoded_gen_seq = dataset.encode_sequence(gen_seq)
+            score = model.score(sequence1=encoded_context_seq, sequence2=encoded_gen_seq)
+            scores.append(score)
+        pmi_scores.append(scores)
+    pmi_scores = numpy.array(pmi_scores)
+    return {'pmi_scores': pmi_scores, 'mean_pmi_scores': numpy.mean(pmi_scores)}
 
 
 

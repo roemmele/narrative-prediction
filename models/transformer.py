@@ -15,6 +15,11 @@ reload(encoder_tools)
 #load spacy model for nlp tools
 encoder = spacy.load('en')
 
+pos_tag_idxs = {'#': 1,'$': 2,"''": 3,'(': 4,')': 5,',': 6,'-LRB-': 7,'-PRB-': 8,'.': 9,':': 10,'ADD': 11,'AFX': 12,'BES': 13,'CC': 14,'CD': 15,'DT': 16,'EX': 17,
+                'FW': 18,'GW': 19,'HVS': 20,'HYPH': 21,'IN': 22,'JJ': 23,'JJR': 24,'JJS': 25,'LS': 26,'MD': 27,'NFP': 28,'NIL': 29,'NN': 30,'NNP': 31,'NNPS': 32,'NNS': 33,
+                'PDT': 34,'POS': 35,'PRP': 36,'PRP$': 37,'RB': 38,'RBR': 39,'RBS': 40,'RP': 41,'SP': 42,'SYM': 43,'TO': 44,'UH': 45,'VB': 46,'VBD': 47,'VBG': 48,'VBN': 49,
+                'VBP': 50,'VBZ': 51,'WDT': 52,'WP': 53,'WP$': 54,'WRB': 55,'XX': 56,'``': 57, '""': 58, '-RRB-': 59}
+
 rng = numpy.random.RandomState(0)
 
 def segment(seq):
@@ -30,12 +35,19 @@ def tokenize(seq, lowercase=True, recognize_ents=False):
                 for word_idx, word in enumerate(seq) 
                     if (not word.ent_type_ or word_idx in ent_start_idxs)]
     if lowercase: #don't lowercase if token is an entity (entities will be of type span instead of token; or will be prefixed with 'ENT_' if already transformed to types)
-        seq = [word.string.strip().lower() if (type(word) == spacy.tokens.token.Token and not word.string.startswith('ENT_')) else word.string.strip() for word in seq]
+        seq = [word.string.strip().lower() if (type(word) == spacy.tokens.token.Token and not word.string.startswith('ENT_')) 
+                                            else word.string.strip() for word in seq]
     else:
         seq = [word.string.strip() for word in seq]
-    seq = [word for word in seq if word] #make sure no empty strings returned
+    seq = [word if word else u"<NULL>" for word in seq] #if word is empty after stripping space, replace with NULL token
     return seq
 
+def get_pos_num_seq(seq): #get part-of-speech (PTB fine-grained) tags for this sequence, converted to indices
+    seq = encoder(seq)
+    pos_num_seq = [pos_tag_idxs[word.tag_] if not word.string.startswith('ENT_') else 'NNP' for word in seq] #if token is an entity, assume POS is proper noun
+    assert(numpy.all(numpy.array(pos_num_seq) > 0))
+    assert(len(seq) == len(pos_num_seq))
+    return pos_num_seq
 
 def ent_counts_to_probs(ent_counts, min_freq=1):
     ent_counts = {ent_type:{ent:count for ent,count in ent_counts[ent_type].items() #filter by frequency
@@ -162,6 +174,8 @@ def detokenize_seq(seq, ents=[]):
                         break
                 token_idx += 1
 
+        #!!!!!! NEED TO WRITE A RULE THAT TAKES PLURAL POSSESSIVE PUNCTUATION (E.G. " PARENTS' "") INTO ACCOUNT
+
 
         # if type(detok_sent) in (tuple, list):
         detok_sent = " ".join(sent)
@@ -195,10 +209,7 @@ def detokenize_seq(seq, ents=[]):
         detok_sent = re.sub("\`\`", "\"", detok_sent)
 
         #filter repetitive characters
-        #detok_sent = re.sub("(\'\s*){3,}", "\'\'", detok_sent)
-        #detok_sent = re.sub("(\`\s*){3,}", "\`\`", detok_sent)
         detok_sent = re.sub("([\"\']\s*){2,}", "\" ", detok_sent)
-        #detok_sent = re.sub("(\.\s*){4,}", "...", detok_sent)
 
 
         punc_pairs = {"\'": "\'","\'": "\'", "`": "\'", "\"": "\"", "(": ")", "[": "]"} #map each opening puncutation mark to closing mark
@@ -228,17 +239,24 @@ def detokenize_seq(seq, ents=[]):
     #print detok_seq
     return detok_seq
 
-def filter_gen_seq(seq, n_sents=1):
+def filter_gen_seq(seq, n_sents=1, eos_tokens=[]):
     '''given a generated sequence, filter so that only the first n_sents are included in final generated sequence'''
-    seq = [sent.split() for sent in segment(" ".join(seq))] #split into sentences
-    seq = [word for sent in seq[:n_sents] for word in sent]
+    #import pdb;pdb.set_trace()
+    if eos_tokens: #if end-of-sentence tokens given, cut off sequence at first occurrence of one of these tokens; otherwise use segmenter to infer sentence boundaries
+        seq = encoder(seq)
+        for idx, word in enumerate(seq):
+            if word.string.strip() in eos_tokens:
+                seq = seq[:idx + 1].string.strip()
+                break
+    else:
+        seq = " ".join(segment(seq)[:n_sents])
     return seq
 
 
 def load_transformer(filepath, embeddings=None):
     #load saved models
     if not os.path.exists(filepath + "/transformer.pkl"):
-        return None
+        return "filepath", filepath + "/transformer.pkl does not exist"
     with open(filepath + '/transformer.pkl', 'rb') as f:
         transformer = pickle.load(f)
     transformer.word_embeddings = embeddings
@@ -356,10 +374,10 @@ def resave_transformer_nosklearn(old_transformer):
 
 
 
-class SequenceTransformer():#FunctionTransformer
+class SequenceTransformer():#FunctionTransformer):
     def __init__(self, min_freq=1, max_length=None, pad_seq=False, lexicon=[],
                     verbose=1, unk_word=u"<UNK>", word_embeddings=None, generalize_ents=False,
-                    reduce_emb_mode=None, copy_input_to_output=False, filepath=None): #embed_y=False, 
+                    reduce_emb_mode=None, filepath=None): #embed_y=False, 
         #FunctionTransformer.__init__(self)
         self.unk_word = unk_word #string representation for unknown words in lexicon
         #use existing word embeddings if given
@@ -383,11 +401,11 @@ class SequenceTransformer():#FunctionTransformer
         self.ent_counts = {}
         self.reduce_emb_mode = reduce_emb_mode #specify if embeddings should be combined across sequence (e.g. take mean, sum)
         #self.copy_input_to_output = copy_input_to_output
-        if self.verbose:
-            print "created transformer with minimum word frequency =", self.min_freq, ", generalize named entities =", self.generalize_ents
         # if filepath and not os.path.isdir(filepath):
         #     os.mkdir(filepath)
         self.filepath = filepath
+        if self.verbose:
+            print "Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embeddings')}
 
     def make_lexicon(self, seqs):
 
@@ -506,7 +524,7 @@ class SequenceTransformer():#FunctionTransformer
         count_vecs[:,0] = 0 #don't include 0s in vector (0's are words that are not part of context)
         return count_vecs
     
-    def decode_num_seqs(self, seqs, n_sents_per_seq=None, detokenize=False, ents=[], capitalize_ents=False, adapt_ents=False):
+    def decode_num_seqs(self, seqs, n_sents_per_seq=None, eos_tokens=[], detokenize=False, ents=[], capitalize_ents=False, adapt_ents=False):
         if type(seqs[0]) not in (list, numpy.ndarray, tuple):
             seqs = [seqs]
         decoded_seqs = []
@@ -514,8 +532,6 @@ class SequenceTransformer():#FunctionTransformer
         for seq_idx, seq in enumerate(seqs):
             #import pdb;pdb.set_trace()
             seq = [self.lexicon_lookup[word] if self.lexicon_lookup[word] else self.unk_word for word in seq]
-            if n_sents_per_seq: #if filter_n_sents is a number, filter generated sequence to only the first N=filter_n_sents sentences
-                seq = filter_gen_seq(seq, n_sents=n_sents_per_seq)
             if ents and adapt_ents: #replace generated entities with those given in ents
                 seq = adapt_seq_ents(seq, ents=ents[seq_idx], sub_ent_probs=ent_counts_to_probs(self.ent_counts))
             if detokenize: #apply rules for transforming token list into formatted sequence
@@ -525,6 +541,10 @@ class SequenceTransformer():#FunctionTransformer
                     seq = detokenize_seq(seq, ents=[])
             else:
                 seq = " ".join(seq) #otherwise just join tokens with whitespace between each
+            if eos_tokens: #if filter_n_sents is a number, filter generated sequence to only the first N=filter_n_sents sentences
+                seq = filter_gen_seq(seq, eos_tokens=eos_tokens)
+            elif n_sents_per_seq:
+                seq = filter_gen_seq(seq, n_sents=n_sents_per_seq)
             decoded_seqs.append(seq)
         return decoded_seqs
             
@@ -565,15 +585,6 @@ class SequenceTransformer():#FunctionTransformer
         seqs = numpy.array(seqs)
         return seqs
 
-    # def pad_encoded_sents(self):
-    #     import pdb;pdb.set_trace()
-    #     seqs = [numpy.array([numpy.append(sent, numpy.zeros((self.max_length - len(sent), 
-    #             self.lm_classifier.encoder_model.layers[-1].output_dim)), axis=0)
-    #             for sent in seq]) for seq in seqs]
-        
-    #     seqs = numpy.array(seqs)
-    #     return seqs
-
     def pad_embeddings(self, seqs):
         #import pdb;pdb.set_trace()
         assert(type(seqs[0]) is list and len(seqs[0][0].shape) == 2)
@@ -584,39 +595,7 @@ class SequenceTransformer():#FunctionTransformer
         
         seqs = numpy.array(seqs)
         return seqs
-    
-    # def remove_extra_dim(self, seqs):
-    #     #if seqs have an extra dimension of one, flatten it
-    #     if len(seqs[0]) == 1:
-    #         if type(seqs) is numpy.ndarray:
-    #             seqs = seqs[:, 0]
-    #         else:
-    #             seqs = [sent for seq in seqs for sent in seq]
-    #     return seqs
         
-    # def transform(self, seqs, seqs_filepath=None):
-    #     #seqs = self.format_seqs(seqs=seqs)
-    #     if self.generalize_ents:
-    #         seqs = self.replace_ents_in_seqs(seqs)
-    #     #seqs = [self.text_to_nums(seqs=seqs_) for seqs_ in seqs]
-    #     seqs = self.text_to_nums(seqs)
-    #     if self.word_embeddings:
-    #         seqs = [self.embed_words(seqs=seqs_) for seqs_ in seqs]
-    #         #combine embeddings if specified
-    #         if self.reduce_emb_mode:
-    #             seqs = self.reduce_embs(seqs=seqs)
-    #         if self.pad_seq:
-    #             #import pdb;pdb.set_trace()
-    #             seqs = self.pad_embeddings(seqs=seqs)
-    #     else:
-    #         if self.pad_seq:
-    #             seqs = self.pad_nums(seqs=seqs)
-        #seqs = self.remove_extra_dim(seqs=seqs)
-
-        # if seqs_filepath:
-        #     numpy.save(seqs_filepath, seqs)
-                 
-        return seqs
 
     def seqs_to_feature_words(self, seqs, include_pos=('NOUN', 'PRON', 'PROPN')):
         '''input is sequences of where each sequence is a list of tokens where entities have already been replaced, if applicable;

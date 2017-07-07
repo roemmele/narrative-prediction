@@ -1,5 +1,4 @@
-import sqlite3, numpy
-from sklearn.linear_model import LinearRegression
+import sqlite3, numpy, pickle
 
 from transformer import *
 
@@ -46,36 +45,30 @@ def save_ngrams(ngram_counts, n, filepath):
     #close connection
     db.close()
 
-def lookup_counts_for_prefix(filepath, ngram_prefix):
+def lookup_ngram_count(filepath, ngram):
     '''specify an ngram prefix to get all counts of n+1 grams that include that prefix'''
 
     db = sqlite3.connect(filepath)
     cursor = db.cursor()
 
-    if ngram_prefix:
-        n = len(ngram_prefix) + 1 #n refers to length of returned ngrams
-        if len(ngram_prefix) == 1:
-            cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 > -1 AND word3 = -1\
-                            AND word4 = -1 AND word5 = -1", ngram_prefix)
-        elif len(ngram_prefix) == 2:
-            cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 > -1\
-                            AND word4 = -1 AND word5 = -1", ngram_prefix)
-        elif len(ngram_prefix) == 3:
-            cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ?\
-                            AND word4 > -1 AND word5 = -1", ngram_prefix)
-        elif len(ngram_prefix) == 4:
-            cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ?\
-                            AND word4 = ? AND word5 > -1", ngram_prefix)
+    #queries will match all ngrams that start with the given n-gram (if length of ngrams in db is greater than length of given ngram), so multiple rows may be returned
+    if len(ngram) == 1:
+        cursor.execute("SELECT * FROM ngram WHERE word1 = ?", ngram)
+    elif len(ngram) == 2:
+        cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ?", ngram)
+    elif len(ngram) == 3:
+        cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ?", ngram)
+    elif len(ngram) == 4:
+        cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ? AND word4 = ?", ngram)
+    elif len(ngram) == 5:
+        cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ? AND word4 = ? AND word5 = ?", ngram)
 
-    ngram_counts = cursor.fetchall()
-
+    count = numpy.sum(numpy.array([ngram[-1] for ngram in cursor.fetchall()]))
+    
     cursor.close()
     db.close()
-    
-    ngrams = [ngram[:n] for ngram in ngram_counts]
-    counts = numpy.array([ngram[-1] for ngram in ngram_counts])
-    assert(len(ngrams) == len(counts))
-    return ngrams, counts
+
+    return count
 
 def lookup_counts_for_n(filepath, n):
     '''get all ngrams of length n'''
@@ -109,26 +102,25 @@ def lookup_counts_for_n(filepath, n):
     return ngrams, counts
 
     
-def lookup_ngram_count(filepath, ngram):
-    '''either specify an ngram prefix to get all counts of n+1 grams that include that prefix, 
-    or a particular ngram to retrieve counts for, or all ngrams of length n'''
+# def lookup_ngram_count(filepath, ngram):
+#     '''specify a particular ngram to retrieve counts for'''
 
-    db = sqlite3.connect(filepath)
-    cursor = db.cursor()
+#     db = sqlite3.connect(filepath)
+#     cursor = db.cursor()
 
-    n = len(ngram)
-    ngram = ngram + (-1,) * (5 - len(ngram))
-    cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ?\
-                    AND word4 = ? AND word5 = ?", ngram)
+#     n = len(ngram)
+#     ngram = ngram + (-1,) * (5 - len(ngram))
+#     cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ?\
+#                     AND word4 = ? AND word5 = ?", ngram)
         
-    ngram_count = cursor.fetchone()
-    cursor.close()
-    db.close()
+#     ngram_count = cursor.fetchone()
+#     cursor.close()
+#     db.close()
     
-    if not ngram_count:
-        return 0
-    else:
-        return ngram_count[-1]
+#     if not ngram_count:
+#         return 0
+#     else:
+#         return ngram_count[-1]
 
 def add_ngrams_to_model(transformer, seqs, n_min, n_max, filepath):
 
@@ -158,46 +150,19 @@ def extract_ngrams(seqs, n):
                 ngrams[ngram] = 1
             else:
                 ngrams[ngram] += 1
-        # seq_counts = [lookup_ngram_count(filepath, ngram=ngram) for ngram in seq_ngrams]
-        # seq_ngrams = [tuple([transformer.lexicon_lookup[word] if transformer.lexicon_lookup[word] 
-        #                     else transformer.unk_word for word in ngram]) for ngram in seq_ngrams]
-        # ngrams.extend(seq_ngrams)
-        # counts.extend(seq_counts)
-    # assert(len(ngrams) == len(counts))
-    return ngrams#, counts
+    return ngrams
 
-def get_ngram_counts_from_db(transformer, ngrams, filepath):
-    '''this function takes transformed ngrams as input and returns their counts'''
+def get_ngram_counts_from_db(ngrams, lexicon_filepath, db_filepath):
+    '''this function takes text ngrams as input, converts them to word indices according to the given lexicon, and then looks up their count in the given db'''
+    with open(lexicon_filepath, 'rb') as f:
+        lexicon = pickle.load(f)
     counts = []
     for ngram in ngrams:
-        ngram = tuple([transformer.lexicon[word] if word in transformer.lexicon else 1 for word in ngram])
-        count = lookup_ngram_count(filepath, ngram=ngram)
+        ngram = tuple([lexicon[word] if word in lexicon else 1 for word in ngram])
+        count = lookup_ngram_count(db_filepath, ngram=ngram)
         counts.append(count)
-    # assert(len(ngrams) == len(counts))
     counts = numpy.array(counts)
     return counts
-
-# def get_gt_n_counts(n, filepath):
-#     '''get params for good-turing smoothing'''
-#     counts, _ = get_ngram_counts(filepath + '.db', n=n)
-#     lr = LinearRegression()
-#     #estimate missing n_counts wth linear regression
-#     gt_n_values = numpy.arange(len(counts) + 1)
-#     gt_n_values[0] = 1
-#     #gt_n_values = numpy.log(gt_n_values) 
-
-#     gt_n_counts = numpy.bincount(counts)
-#     gt_n_counts = numpy.append(gt_n_counts, 0)
-#     zero_gt_n_counts = numpy.where(gt_n_counts == 0)
-#     gt_n_counts[zero_gt_n_counts] = 1
-#     #gt_n_counts = numpy.log(gt_n_counts)
-
-#     lr.fit(X=numpy.log(gt_n_counts)[:,None], y=numpy.log(gt_n_counts))
-#     pred_gt_n_counts = numpy.exp(lr.predict(X=gt_n_counts[:,None]))
-#     gt_n_counts[zero_gt_n_counts] = pred_gt_n_counts[zero_gt_n_counts]
-#     #counts = (counts + 1) * (n_counts[counts + 1] / n_counts[counts]) #smooth counts with good-turing
-
-#     numpy.save(filepath + '.gt_counts' + str(n), gt_n_counts)
             
 
 def gen_ngram_sents(transformer, seqs, n, filepath, eos_tokens=[".", "!", "?"], cap_tokens=[]):
