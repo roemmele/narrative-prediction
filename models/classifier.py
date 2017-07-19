@@ -3,7 +3,7 @@ import theano
 import theano.tensor as T
 from keras.wrappers.scikit_learn import KerasClassifier, KerasRegressor
 from keras.models import Sequential, Model, load_model
-from keras.layers import Input, Dense, TimeDistributed, merge, Dropout, Masking, Reshape, RepeatVector
+from keras.layers import *
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import GRU
 from keras.optimizers import RMSprop, SGD, Adagrad, Adam
@@ -11,15 +11,6 @@ from keras.preprocessing.sequence import pad_sequences
 import keras.backend as K
 
 theano_rng = T.shared_randomstreams.RandomStreams(123)
-
-
-def load_classifier(filepath):
-    #load keras model itself
-    with open(filepath + '/classifier.pkl', 'rb') as f:
-        classifier = pickle.load(f)
-    classifier.model = load_model(filepath + '/classifier.h5')
-    print "loaded classifier from", filepath + '/classifier.pkl'
-    return classifier
 
 
 class SavedModel():
@@ -33,7 +24,7 @@ class SavedModel():
         self.model.save(self.filepath + '/classifier.h5')
         with open(self.filepath + '/classifier.pkl', 'wb') as f:
             pickle.dump(self, f)
-        print "Saved model to", self.filepath
+        print "Saved", self.__class__.__name__, "to", self.filepath
         
     def __getstate__(self):
         #don't save model itself with classifier object, it'll be saved separately as .h5 file
@@ -49,6 +40,14 @@ class SavedModel():
         if 'sample_words' in attrs:
             del attrs['sample_words']
         return attrs
+
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath + '/classifier.pkl', 'rb') as f:
+            classifier = pickle.load(f)
+        classifier.model = load_model(filepath + '/classifier.h5')
+        print "loaded classifier from", filepath + '/classifier.pkl'
+        return classifier
 
 def get_batch(seqs, batch_size=None, padding='pre', max_length=None, n_timesteps=None):
     if not max_length:
@@ -427,7 +426,7 @@ class RNNLM(SavedModel):#KerasClassifier
         return p_next_words
 
     def get_probs(self, seqs, pos_seqs=None, feature_vecs=None, batch_size=1):
-        '''return log probability computed by model for each sequence'''
+        '''return log probabilities computed by model for each word in each sequence'''
 
         probs = []
 
@@ -441,10 +440,11 @@ class RNNLM(SavedModel):#KerasClassifier
                 batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
 
             p_next_words = self.read_batch(seqs=batch_seqs, pos=batch_pos if self.use_pos else None, features=batch_features)
-            p_next_words = numpy.log(p_next_words)
+            #p_next_words = numpy.log(p_next_words)
             len_seqs = [len(seq) for seq in seqs[batch_index:batch_index + batch_size]]
             #remove padding from each sequence and before computing mean
-            p_next_words = numpy.array([numpy.mean(p_next_words_[-len_seq:]) for p_next_words_, len_seq in zip(p_next_words, len_seqs)])
+            #p_next_words = numpy.array([numpy.mean(p_next_words_[-len_seq:]) for p_next_words_, len_seq in zip(p_next_words, len_seqs)])
+            p_next_words = [p_next_words_[-len_seq:] for p_next_words_, len_seq in zip(p_next_words, len_seqs)]
             probs.extend(p_next_words)
 
             self.pred_model.reset_states()
@@ -452,7 +452,7 @@ class RNNLM(SavedModel):#KerasClassifier
             if batch_index and batch_index % 1000 == 0:
                 print "computed probabilities for {}/{} sequences...".format(batch_index, len(seqs))
 
-        probs = numpy.array(probs)
+        #probs = numpy.array(probs)
 
         return probs
 
@@ -609,14 +609,14 @@ def max_margin(y_true, y_pred):
     return K.sum(K.maximum(0., 1. - y_pred*y_true + y_pred*(1. - y_true)))
 
 
-class SeqBinaryClassifier(SavedModel, KerasClassifier):
-    def __init__(self, context_size, lexicon_size=None, max_length=None, n_embedding_nodes=300, batch_size=None, 
+class SeqBinaryClassifier(SavedModel):#, KerasClassifier):
+    def __init__(self, context_size, lexicon_size=None, n_embedding_nodes=300, batch_size=100, 
                  n_hidden_layers=1, n_hidden_nodes=200, verbose=1, embedded_input=True, optimizer='RMSprop', clipvalue=numpy.inf,
-                 filepath=None, use_dropout=False, pairs=False, save_freq=20):
+                 filepath=None, use_dropout=False, pairs=False): #max_length=None, , save_freq=20
         
         self.batch_size = batch_size
         self.lexicon_size = lexicon_size
-        self.max_length = max_length
+        #self.max_length = max_length
         self.n_hidden_layers = n_hidden_layers
         self.n_hidden_nodes = n_hidden_nodes
         self.n_embedding_nodes = n_embedding_nodes
@@ -627,48 +627,43 @@ class SeqBinaryClassifier(SavedModel, KerasClassifier):
         self.pairs = pairs
         self.clipvalue = clipvalue
         self.optimizer = optimizer
-        self.update_num = 0
-        self.save_freq = save_freq
-        if filepath and not os.path.isdir(filepath):
-            os.mkdir(filepath)
+        #self.update_num = 0
+        #self.save_freq = save_freq
         self.filepath = filepath
 
         ####################CURRENT METHOD######################
-        context_input_layer = Input(batch_shape=(self.batch_size, self.context_size, self.n_embedding_nodes), name="context_input_layer")
-
-        seq_input_layer = Input(batch_shape=(self.batch_size, self.n_embedding_nodes), name="seq_input_layer")
-
-        reshape_seq_layer = Reshape((1, self.n_embedding_nodes))(seq_input_layer)
-
-        merge_layer = merge([context_input_layer, reshape_seq_layer], mode='concat', concat_axis=-2, name='merge_layer')
-
-        mask_layer = Masking(mask_value=0.0, input_shape=(self.context_size + 1, self.n_embedding_nodes))(merge_layer)
-
-        hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(mask_layer)#(merge_layer)
-
-        pred_layer = Dense(output_dim=1, activation='sigmoid', name='pred_layer')(hidden_layer)
-
-        self.model = Model(input=[context_input_layer, seq_input_layer], output=pred_layer)
-        ##########################################################
-
-        ################NAOYA METHOD##############################
-
         # context_input_layer = Input(batch_shape=(self.batch_size, self.context_size, self.n_embedding_nodes), name="context_input_layer")
 
         # seq_input_layer = Input(batch_shape=(self.batch_size, self.n_embedding_nodes), name="seq_input_layer")
 
-        # hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, 
-        #                             stateful=False, name='context_hidden_layer')(context_input_layer)
+        # reshape_seq_layer = Reshape((1, self.n_embedding_nodes))(seq_input_layer)
 
-        # context_dense_layer = Dense(output_dim=self.n_hidden_nodes, activation='tanh', name='context_dense_layer')(hidden_layer)
+        # merge_layer = merge([context_input_layer, reshape_seq_layer], mode='concat', concat_axis=-2, name='merge_layer')
 
-        # seq_dense_layer = Dense(output_dim=self.n_hidden_nodes, activation='tanh', name='seq_dense_layer')(seq_input_layer)
+        # mask_layer = Masking(mask_value=0.0, input_shape=(self.context_size + 1, self.n_embedding_nodes))(merge_layer)
 
-        # merge_layer = merge([context_dense_layer, seq_dense_layer], mode='dot', name='merge_layer')
+        # hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(mask_layer)#(merge_layer)
 
-        # model = Model(input=[context_input_layer, seq_input_layer], output=merge_layer)
+        # pred_layer = Dense(output_dim=1, activation='sigmoid', name='pred_layer')(hidden_layer)
 
-        ############################################################
+        # self.model = Model(input=[context_input_layer, seq_input_layer], output=pred_layer)
+        ##########################################################
+
+        ####################ALTERNATIVE METHOD######################
+        context_input_layer = Input(batch_shape=(self.batch_size, self.context_size, self.n_embedding_nodes), name="context_input_layer")
+
+        context_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(context_input_layer)
+
+        seq_input_layer = Input(batch_shape=(self.batch_size, self.n_embedding_nodes), name="seq_input_layer")
+
+        seq_hidden_layer = Dense(output_dim=self.n_hidden_nodes, activation='tanh', name='seq_hidden_layer')(seq_input_layer)
+
+        merge_layer = merge([context_hidden_layer, seq_hidden_layer], mode='dot', concat_axis=-1, name='merge_layer')
+
+        sigmoid_layer = Activation('sigmoid')(merge_layer)
+
+        self.model = Model(input=[context_input_layer, seq_input_layer], output=sigmoid_layer)
+        ##########################################################
 
         # if self.use_dropout:
         #     merge_layer = Dropout(p=0.25)(merge_layer)
@@ -692,71 +687,27 @@ class SeqBinaryClassifier(SavedModel, KerasClassifier):
 
         optimizer = eval(self.optimizer)(clipvalue=self.clipvalue)
 
-        self.model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])#loss='mean_squared_error', 'sparse_categorical_crossentropy'
+        self.model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
         
         if self.verbose:
-            print "CREATED SeqBinary model: embedding layer nodes = {}, " \
-                    "hidden layers = {}, hidden layer nodes = {}, dropout = {}, " \
-                    "optimizer = {}, batch size = {}".format(self.n_embedding_nodes, self.n_hidden_layers,
-                                         self.n_hidden_nodes, self.use_dropout, optimizer, self.batch_size)
+            print "Created model", self.__class__.__name__, ":", self.__dict__
         
     
-    def fit(self, X, y, y_seqs=None):
-
-        if len(X.shape) < 3: #make sure X has 3 dimensions (n_samples, context_size, encoder_dim) (context may consist of a single sentence)
-            X = X[:, None, :]
-
-        model_input = [X, y_seqs]
+    def fit(self, input_seqs, output_seqs, labels):
     
         #sentences up to last are context, last sentence is ending to be judged as correct
-        history = self.model.fit(model_input, y, nb_epoch=1)
+        history = self.model.fit([input_seqs, output_seqs], labels, nb_epoch=1, batch_size=self.batch_size)
         
         print "loss: {:.3f}, accuracy: {:.3f}".format(history.history['loss'][0], history.history['acc'][0])
 
-        self.update_num += 1
-
-        #save model if filepath given
-        if self.filepath and (self.update_num % self.save_freq == 0):
+        if self.filepath:
             self.save()
 
-    def predict(self, X, y_seqs):
-        #import pdb;pdb.set_trace()
+    def predict(self, input_seq, output_seq):
+        '''return score for likelihood of output seq given input seq'''
 
-        if len(X.shape) < 2: #make sure X has 3 dimensions (n_samples, context_size, encoder_dim) (context may consist of a single sentence)
-            X = X[None, None, :]
-        elif len(X.shape) < 3:
-            X = X[:, None, :]
-
-        probs_y = []
-            
-        if type(y_seqs) is numpy.ndarray:
-            if len(y_seqs.shape) < 2:
-                y_seqs = y_seqs[None, None, :]
-            elif len(y_seqs.shape) < 3:
-                y_seqs = y_seqs[:, None, :]
-
-            for choice_idx in xrange(y_seqs.shape[1]):
-                choices = y_seqs[:, choice_idx]
-                probs = self.model.predict([X, choices])[:,-1]
-                probs_y.append(probs)
-
-            probs_y = numpy.stack(probs_y, axis=1)
-            pred_y = numpy.argmax(probs_y, axis=1)
-
-        else:
-            for seq, y_seq in zip(X, y_seqs):
-                probs_choice = []
-                for choice_idx in xrange(len(y_seq)):
-                    #choices = y_seq[choice_idx]
-                    probs = self.model.predict([seq[None], y_seq[None, choice_idx]])[:,-1][0]
-                    probs_choice.append(probs)
-                probs_y.append(numpy.array(probs_choice))
-
-            pred_y = numpy.array([numpy.argmax(probs) for probs in probs_y])
-
-        assert(len(pred_y) == len(probs_y) == len(X))
-            
-        return probs_y, pred_y
+        prob = self.model.predict([input_seq[None], output_seq[None]])[0]
+        return prob
 
 
 class Autoencoder():
@@ -938,41 +889,12 @@ class MLPLM(SavedModel):
         p_next_words = self.model.predict(X)[numpy.arange(len(X)), y[:,0]]
         idx = 0
         for len_seq in len_seqs: #reshape probs back into sequences to get mean log prob for each sequence
-            p_next_words_ = numpy.mean(numpy.log(p_next_words[idx:idx+len_seq-self.n_timesteps]))
+            #p_next_words_ = numpy.mean(numpy.log(p_next_words[idx:idx+len_seq-self.n_timesteps]))
+            p_next_words_ = p_next_words[idx:idx+len_seq-self.n_timesteps]
             idx += len_seq-self.n_timesteps
             probs.append(p_next_words_)
-        probs = numpy.array(probs)
+        #probs = numpy.array(probs)
         return probs
-
-    # def get_probs(self, seqs, pos_seqs=None, feature_vecs=None, batch_size=1):
-    #     '''return log probability computed by model for each sequence'''
-
-    #     probs = []
-
-    #     for batch_index in xrange(0, len(seqs), batch_size):
-    #         batch_features = None
-    #         batch_pos = None
-    #         batch_seqs = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size) #prep batch
-    #         if self.use_pos:
-    #             batch_pos = get_batch(seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
-    #         if self.use_features:
-    #             batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
-
-    #         p_next_words = self.read_batch(seqs=batch_seqs, pos=batch_pos if self.use_pos else None, features=batch_features)
-    #         p_next_words = numpy.log(p_next_words)
-    #         len_seqs = [len(seq) for seq in seqs[batch_index:batch_index + batch_size]]
-    #         #remove padding from each sequence and before computing mean
-    #         p_next_words = numpy.array([numpy.mean(p_next_words_[-len_seq:]) for p_next_words_, len_seq in zip(p_next_words, len_seqs)])
-    #         probs.extend(p_next_words)
-
-    #         self.pred_model.reset_states()
-
-    #         if batch_index and batch_index % 1000 == 0:
-    #             print "computed probabilities for {}/{} sequences...".format(batch_index, len(seqs))
-
-    #     probs = numpy.array(probs)
-
-    #     return probs
 
 
 
@@ -1255,4 +1177,42 @@ class MergeSeqClassifier(KerasClassifier):
             max_probs.append(probs)
         y = numpy.argmax(numpy.stack(max_probs, axis=1), axis=1)
         return y
+
+class CausalEmbeddings(SavedModel):
+    def __init__(self, lexicon_size=None, n_embedding_nodes=300, batch_size=100, filepath=None):
+        self.lexicon_size = lexicon_size
+        self.n_embedding_nodes = n_embedding_nodes
+        self.batch_size = batch_size
+        self.filepath = filepath
+
+    def create_model(self):
+        cause_word_layer = Input(shape=(1,), name="cause_word_layer") #batch_shape=(batch_size, 
+        cause_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='cause_emb_layer')(cause_word_layer)
+        effect_word_layer = Input(shape=(1,), name="effect_word_layer")#batch_shape=(batch_size,
+        effect_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='effect_emb_layer')(effect_word_layer)#
+        merge_layer = merge([cause_emb_layer, effect_emb_layer], mode='dot', concat_axis=-1, name='merge_layer')
+        flatten_layer = Flatten(name='flatten_layer')(merge_layer)
+        sigmoid_layer = Activation('sigmoid')(flatten_layer)
+        model = Model(input=[cause_word_layer, effect_word_layer], output=sigmoid_layer)
+        model.compile(loss='binary_crossentropy', optimizer='adam')
+        return model
+
+    def fit(self, cause_words, effect_words, labels, lexicon_size=None, n_epochs=10):
+
+        if not hasattr(self, 'model'):
+            assert(lexicon_size is not None)
+            self.lexicon_size = lexicon_size
+            self.model = self.create_model()
+            print "Created model", self.__class__.__name__, ":", self.__dict__
+
+        self.model.fit(x=[cause_words, effect_words], y=labels, batch_size=self.batch_size, nb_epoch=n_epochs)
+
+        if self.filepath:
+            self.save()
+
+    def predict(self, cause_words, effect_words):
+
+        probs = self.model.predict(x=[cause_words, effect_words])
+        return probs
+
 

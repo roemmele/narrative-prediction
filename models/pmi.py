@@ -12,7 +12,7 @@ numpy.set_printoptions(suppress=True)
 
 rng = numpy.random.RandomState(123)
 
-class PMI_Model(object):
+class PMIModel(object):
 
 	def __init__(self, dataset_name):
 		self.dataset_name = dataset_name
@@ -266,19 +266,13 @@ class PMI_Model(object):
 
 		return pmi
 
-	def score(self, sequences=None):
+	def score(self, sequence1, sequence2):
 		'''compute total pmi for each ordered pair of words in a pair of sequences - result is score of association between sequence1 and sequence2'''
 
 		if self.unigram_counts is None:
 			self.unigram_counts = self.load(self.unigram_counts_filename)
 		if not self.lexicon_size:
 			self.lexicon_size = len(self.unigram_counts)
-
-		#sequences should be a list of two sequences
-		assert len(sequences) == 2
-
-		sequence1 = sequences[0]
-		sequence2 = sequences[1]
 
 		sum_pmi = 0
 		pmis = []

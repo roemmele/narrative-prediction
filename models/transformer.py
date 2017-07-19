@@ -1,4 +1,5 @@
 import numpy, os, spacy, pickle, sys, re, random
+from itertools import *
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 from keras.preprocessing.sequence import pad_sequences
@@ -26,7 +27,7 @@ def segment(seq):
     seq = [sent.string.strip() for sent in encoder(seq).sents]
     return seq
 
-def tokenize(seq, lowercase=True, recognize_ents=False):
+def tokenize(seq, lowercase=True, recognize_ents=False, lemmatize=False, include_tags=[]):
     seq = encoder(seq)
     if recognize_ents: #merge named entities into single tokens
         ent_start_idxs = {ent.start:ent for ent in seq.ents if ent.string.strip()}
@@ -34,9 +35,12 @@ def tokenize(seq, lowercase=True, recognize_ents=False):
         seq = [ent_start_idxs[word_idx] if word_idx in ent_start_idxs else word
                 for word_idx, word in enumerate(seq) 
                     if (not word.ent_type_ or word_idx in ent_start_idxs)]
-    if lowercase: #don't lowercase if token is an entity (entities will be of type span instead of token; or will be prefixed with 'ENT_' if already transformed to types)
-        seq = [word.string.strip().lower() if (type(word) == spacy.tokens.token.Token and not word.string.startswith('ENT_')) 
-                                            else word.string.strip() for word in seq]
+    if include_tags:
+        seq = [word for word in seq if word.tag_ in include_tags]
+    if lemmatize:
+        seq = [word.lemma_ if not word.string.startswith('ENT_') else word.string.strip() for word in seq]
+    elif lowercase: #don't lowercase if token is an entity (entities will be of type span instead of token; or will be prefixed with 'ENT_' if already transformed to types)
+        seq = [word.string.strip().lower() if (type(word) == spacy.tokens.token.Token and not word.string.startswith('ENT_')) else word.string.strip() for word in seq]
     else:
         seq = [word.string.strip() for word in seq]
     seq = [word if word else u"<NULL>" for word in seq] #if word is empty after stripping space, replace with NULL token
@@ -253,90 +257,13 @@ def filter_gen_seq(seq, n_sents=1, eos_tokens=[]):
     return seq
 
 
-def load_transformer(filepath, embeddings=None):
-    #load saved models
-    if not os.path.exists(filepath + "/transformer.pkl"):
-        return "filepath", filepath + "/transformer.pkl does not exist"
-    with open(filepath + '/transformer.pkl', 'rb') as f:
-        transformer = pickle.load(f)
-    transformer.word_embeddings = embeddings
-    print 'loaded transformer with', transformer.lexicon_size, 'words from', str(filepath) + '/transformer.pkl'
-    return transformer
+def get_causal_pairs(seq1, seq2):
+    causal_pairs = list(product(seq1, seq2))
+    return causal_pairs
 
-
-class SkipthoughtsTransformer():
-    def __init__(self, encoder_module=skipthoughts, encoder=None, encoder_dim=4800, verbose=True):
-        self.encoder_module = encoder_module
-        if not encoder:
-            encoder = self.encoder_module.load_model("skip-thoughts-master")
-        self.encoder = encoder
-        self.encoder_dim = encoder_dim
-        self.verbose = verbose
-    def fit(self, seqs):
-    # def fit(self, X, y_seqs=None):
-        #model is already fit
-        return
-    #def transform(self, X, y_seqs=None, X_filepath=None, y_seqs_filepath=None):
-    def transform(self, seqs, seqs_filepath=None):
-        # if y_seqs is not None:
-        #     y_seqs = self.encode(y_seqs, y_seqs_filepath)
-        #X = self.encode(X, X_filepath)
-        seqs = self.encode(seqs, seqs_filepath)
-        #return X, y_seqs
-        return seqs
-    def encode(self, seqs, seqs_filepath=None):
-        #import pdb;pdb.set_trace()
-        n_seqs = len(seqs)
-        if type(seqs[0]) in (list, tuple):
-            seq_length = numpy.array([len(seq) for seq in seqs])
-            if numpy.all(seq_length[0] == seq_length[1:]):
-                #every sequence has the same length
-                seq_length = seq_length[0]
-            #flatten seqs
-            seqs = [sent for seq in seqs for sent in seq]
-        else:
-            seq_length = 1
-        seqs_shape = (len(seqs), self.encoder_dim)
-        if seqs_filepath:
-            encoded_seqs = numpy.memmap(seqs_filepath, dtype='float64',
-                                        mode='w+', shape=seqs_shape)
-        else:
-            encoded_seqs = numpy.zeros(seqs_shape)
-
-        chunk_size = 500000
-        for seq_idx in xrange(0, len(seqs), chunk_size):
-            #memory errors if encoding a large number of stories
-            encoded_seqs[seq_idx:seq_idx + chunk_size] = self.encoder_module.encode(self.encoder, 
-                                                                                    seqs[seq_idx:seq_idx + chunk_size], verbose=self.verbose)
-        
-        if type(seq_length) in (list, tuple, numpy.ndarray):
-            #different lengths per sequence
-            idxs = [numpy.sum(seq_length[:idx]) for idx in xrange(len(seq_length))] + [None] #add -1 for last entry
-            encoded_seqs = [encoded_seqs[idxs[start]:idxs[start+1]] for start in xrange(len(idxs) - 1)]
-        else:
-            encoded_seqs = encoded_seqs.reshape(n_seqs, seq_length, self.encoder_dim)
-            
-        return encoded_seqs
-
-def load_skipthoughts_transformer(filepath='../skip-thoughts-master', word_embeddings='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
-    if pretrained:
-        #filepaths are hard-coded for pre-trained skipthought model
-        encoder_module = skipthoughts
-        sent_encoder = encoder_module.load_model(path_to_models=filepath)
-
-    else:
-        encoder_module = encoder_tools
-        sent_encoder = encoder_module.load_model(embed_map=word_embeddings, 
-                                                 path_to_model=filepath + '/encoder', 
-                                                 path_to_dictionary=filepath + '/lexicon')
-        
-    transformer = SkipthoughtsTransformer(encoder_module=encoder_module, 
-                                          encoder=sent_encoder,
-                                          encoder_dim=n_nodes, verbose=verbose)
-
-    print 'loaded skipthoughts encoder from', filepath
-
-    return transformer
+def reverse_pairs(causal_pairs):
+    reversed_pairs = [(effect_word, cause_word) for cause_word, effect_word in causal_pairs]
+    return reversed_pairs
 
 def load_seqs(filepath, memmap=False, shape=None):
     if memmap:
@@ -366,43 +293,36 @@ def resave_transformer_nosklearn(old_transformer):
     new_transformer.max_length = old_transformer.max_length
     new_transformer.verbose = old_transformer.verbose
     #new_transformer.embed_y = old_transformer.embed_y
-    new_transformer.generalize_ents = old_transformer.generalize_ents
+    if hasattr(old_transformer, 'generalize_ents'):
+        new_transformer.generalize_ents = old_transformer.generalize_ents
+    else:
+        new_transformer.generalize_ents = False
     new_transformer.reduce_emb_mode = old_transformer.reduce_emb_mode
-    new_transformer.copy_input_to_output = old_transformer.copy_input_to_output
+    #new_transformer.copy_input_to_output = old_transformer.copy_input_to_output
     new_transformer.filepath = old_transformer.filepath
     new_transformer.save()
 
 
 
-class SequenceTransformer():#FunctionTransformer):
-    def __init__(self, min_freq=1, max_length=None, pad_seq=False, lexicon=[],
-                    verbose=1, unk_word=u"<UNK>", word_embeddings=None, generalize_ents=False,
-                    reduce_emb_mode=None, filepath=None): #embed_y=False, 
-        #FunctionTransformer.__init__(self)
+class SequenceTransformer():#):
+    def __init__(self, min_freq=1, max_length=None, pad_seq=False, lexicon=[], lemmatize=False,
+                include_tags=[], verbose=1, unk_word=u"<UNK>", word_embeddings=None, 
+                generalize_ents=False, reduce_emb_mode=None, filepath=None):
         self.unk_word = unk_word #string representation for unknown words in lexicon
-        #use existing word embeddings if given
-        self.word_embeddings = word_embeddings
-        if self.word_embeddings is not None:
-            if type(self.word_embeddings) is not dict:
-                #convert Word2Vec embeddings to dict
-                self.word_embeddings = {word:self.word_embeddings[word] for word in self.word_embeddings.vocab}
-            self.n_embedding_nodes = len(self.word_embeddings.values()[0])
+        self.word_embeddings = word_embeddings #use existing word embeddings if given
+        if self.word_embeddings:
+            self.n_embedding_nodes = self.word_embeddings.vector_size
         self.pad_seq = pad_seq
         self.lexicon = lexicon
+        self.lemmatize = lemmatize
+        self.include_tags = include_tags
         self.word_counts = {}
         self.min_freq = min_freq
         self.max_length = max_length
         self.verbose = verbose
-        #specify if y_seqs should be converted to embeddings like input seqs
-        # if embed_y:
-        #     assert(self.word_embeddings is not None)
-        #self.embed_y = embed_y
         self.generalize_ents = generalize_ents #specify if named entities should be replaced with generic labels
         self.ent_counts = {}
         self.reduce_emb_mode = reduce_emb_mode #specify if embeddings should be combined across sequence (e.g. take mean, sum)
-        #self.copy_input_to_output = copy_input_to_output
-        # if filepath and not os.path.isdir(filepath):
-        #     os.mkdir(filepath)
         self.filepath = filepath
         if self.verbose:
             print "Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embeddings')}
@@ -424,7 +344,7 @@ class SequenceTransformer():#FunctionTransformer):
                         self.ent_counts[ent_type][ent] += 1
                 seq = self.replace_ents_in_seqs([seq])[0]
             # else:
-            seq = tokenize(seq)
+            seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags)
 
             for word in seq:
                 if word not in self.word_counts:
@@ -444,45 +364,6 @@ class SequenceTransformer():#FunctionTransformer):
             self.save()
         if self.verbose:
             print "added lexicon of", self.lexicon_size, "words with frequency >=", self.min_freq
-    
-    # def fit(self, seqs):
-    #     #seqs = self.format_seqs(seqs=seqs, unravel=True)
-    #     if not self.lexicon: #lexicon already given
-    #         self.make_lexicon(seqs=seqs)
-
-
-    #     if self.pad_seq:
-    #         self.set_max_length(seqs=seqs)
-    #     if self.filepath: #if filepath given, save transformer
-    #         self.save()
-
-    
-    # def format_seqs(self, seqs, unravel=False):
-    #     #get input and output into standard format
-    #     if isinstance(seqs, (str, unicode)):
-    #         #input is single string, put inside list
-    #         seqs = [seqs]
-            
-    #     if isinstance(seqs[0], (str, unicode)):
-    #         #put each string inside tuple
-    #         seqs = [[seq] for seq in seqs]
-        
-    #     assert(type(seqs[0]) in [list, tuple])
-        
-    #     if unravel:
-    #         seqs = [sent for seq in seqs for sent in seq]
-        
-    #     return seqs
-    
-    # def lookup_eos(self, eos_tokens=[".", "?", "!"]):
-    #     #get indices of end of sentence markers (needed for generating with language model)
-    #     eos_idxs = [self.lexicon[token] for token in eos_tokens if token in self.lexicon]
-    #     return eos_idxs
-        
-    def fit_transform(self, seqs):
-        self.fit(seqs)
-        seqs = self.transform(seqs)
-        return seqs
 
     def replace_ents_in_seqs(self, seqs):
         '''extract entities from seqs and replace them with their entity types'''
@@ -506,10 +387,29 @@ class SequenceTransformer():#FunctionTransformer):
         #import pdb;pdb.set_trace()
         encoded_seqs = []
         for seq in seqs:
-            # if self.generalize_ents: #reduce vocab by mapping all named entities to entity labels (e.g. "PERSON_0")
-            #     seq = self.replace_ents(seq)
-            seq = tokenize(seq)
+            seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags)
             seq = self.tok_seq_to_nums(seq)
+            encoded_seqs.append(seq)
+        assert(len(seqs) == len(encoded_seqs))
+        return encoded_seqs
+
+    def text_to_embs(self, seqs, word_embeddings=None):
+        '''tokenize string sequences and convert to word embeddings; if separate word embeddings given, use these embeddings; otherwise use existing self.word_embeddings'''
+        if not word_embeddings:
+            word_embeddings = self.word_embeddings
+        n_embedding_nodes = word_embeddings.vector_size
+        #import pdb;pdb.set_trace()
+        encoded_seqs = []
+        for seq in seqs:
+            seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags)
+            seq = [word_embeddings[word] if word in word_embeddings else numpy.zeros((n_embedding_nodes))
+                   for word in seq]
+            seq = numpy.array(seq)
+            if self.reduce_emb_mode: #combine embeddings of each sequence by averaging or summing them
+                if self.reduce_emb_mode == 'mean':
+                    seq = numpy.mean(seq, axis=0)
+                elif self.reduce_emb_mode == 'sum':
+                    seq = numpy.sum(seq, axis=0)
             encoded_seqs.append(seq)
         assert(len(seqs) == len(encoded_seqs))
         return encoded_seqs
@@ -548,29 +448,27 @@ class SequenceTransformer():#FunctionTransformer):
             decoded_seqs.append(seq)
         return decoded_seqs
             
-    def embed_words(self, seqs):
-        #import pdb;pdb.set_trace()
+    def nums_to_embs(self, seqs, word_embeddings=None):
         #convert word indices to vectors
+        if not word_embeddings: #if separate word embeddings given, use these embeddings; otherwise use existing self.word_embeddings
+            word_embeddings = self.word_embeddings
+        n_embedding_nodes = word_embeddings.vector_size
         embedded_seqs = []
         for seq in seqs:
             #convert to vectors rather than indices - if word not in lexicon represent with all zeros
-            seq = [self.word_embeddings[self.lexicon_lookup[word]]
-                   if self.lexicon_lookup[word] in self.word_embeddings
-                    else numpy.zeros((self.n_embedding_nodes))
+            seq = [word_embeddings[self.lexicon_lookup[word]]
+                   if self.lexicon_lookup[word] in word_embeddings
+                    else numpy.zeros((n_embedding_nodes))
                    for word in seq]
             seq = numpy.array(seq)
+            if self.reduce_emb_mode: #combine embeddings of each sequence by averaging or summing them
+                if self.reduce_emb_mode == 'mean':
+                    seq = numpy.mean(seq, axis=0)
+                elif self.reduce_emb_mode == 'sum':
+                    seq = numpy.sum(seq, axis=0)
             embedded_seqs.append(seq)
         return embedded_seqs
     
-    def reduce_embs(self, seqs):
-        #import pdb;pdb.set_trace()
-        #combine embeddings of each sequence by averaging or summing them
-        if self.reduce_emb_mode == 'mean':
-            #only average non-zero embeddings
-            seqs = numpy.array([[numpy.mean(sent, axis=0) for sent in seq] for seq in seqs])
-        elif self.reduce_emb_mode == 'sum':
-            seqs = numpy.array([[numpy.sum(sent, axis=0) for sent in seq] for seq in seqs])
-        return seqs
     
     def set_max_length(self, seqs):
         self.max_length = max([len(tokenize(seq)) for seq in seqs])
@@ -595,7 +493,6 @@ class SequenceTransformer():#FunctionTransformer):
         
         seqs = numpy.array(seqs)
         return seqs
-        
 
     def seqs_to_feature_words(self, seqs, include_pos=('NOUN', 'PRON', 'PROPN')):
         '''input is sequences of where each sequence is a list of tokens where entities have already been replaced, if applicable;
@@ -632,12 +529,102 @@ class SequenceTransformer():#FunctionTransformer):
         state.update({'word_embeddings': None})
         return state
 
-# class CountTransformer(SequenceTransformer):
-#     '''transform sequences and then sequences into count (bag-of-words) vectors'''
-#     # def fit_transform(self, seqs, lexicon=None):
-#     #     self.fit(seqs)
-#     #     return self.transform(seqs)
-#     def transform(self, seqs):
+    @classmethod
+    def load(cls, filepath, word_embeddings=None):
+        with open(filepath + '/transformer.pkl', 'rb') as f:
+            transformer = pickle.load(f)
+        transformer.word_embeddings = word_embeddings
+        print 'loaded transformer with', transformer.lexicon_size, 'words from', str(filepath) + '/transformer.pkl'
+        return transformer
+
+class SkipthoughtsTransformer(SequenceTransformer):
+    def __init__(self, encoder_module=skipthoughts, encoder=None, encoder_dim=4800, verbose=True):
+        self.encoder_module = encoder_module
+        if not encoder:
+            encoder = self.encoder_module.load_model("skip-thoughts-master")
+        self.encoder = encoder
+        self.encoder_dim = encoder_dim
+        self.verbose = verbose
+    def encode(self, seqs, seqs_filepath=None):
+        #import pdb;pdb.set_trace()
+        n_seqs = len(seqs)
+        if type(seqs[0]) in (list, tuple):
+            seq_length = numpy.array([len(seq) for seq in seqs])
+            if numpy.all(seq_length[0] == seq_length[1:]):
+                #every sequence has the same length
+                seq_length = seq_length[0]
+            #flatten seqs
+            seqs = [sent for seq in seqs for sent in seq]
+        else:
+            seq_length = 1
+        seqs_shape = (len(seqs), self.encoder_dim)
+        if seqs_filepath:
+            encoded_seqs = numpy.memmap(seqs_filepath, dtype='float64',
+                                        mode='w+', shape=seqs_shape)
+        else:
+            encoded_seqs = numpy.zeros(seqs_shape)
+
+        chunk_size = 500000
+        for seq_idx in xrange(0, len(seqs), chunk_size):
+            #memory errors if encoding a large number of stories
+            encoded_seqs[seq_idx:seq_idx + chunk_size] = self.encoder_module.encode(self.encoder, 
+                                                                                    seqs[seq_idx:seq_idx + chunk_size], verbose=self.verbose)
+        
+        if type(seq_length) in (list, tuple, numpy.ndarray):
+            #different lengths per sequence
+            idxs = [numpy.sum(seq_length[:idx]) for idx in xrange(len(seq_length))] + [None] #add -1 for last entry
+            encoded_seqs = [encoded_seqs[idxs[start]:idxs[start+1]] for start in xrange(len(idxs) - 1)]
+        else:
+            encoded_seqs = encoded_seqs.reshape(n_seqs, seq_length, self.encoder_dim)
+            
+        return encoded_seqs
+
+    @classmethod
+    def load(cls, filepath='../skip-thoughts-master', word_embeddings='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
+        if pretrained:
+            #filepaths are hard-coded for pre-trained skipthought model
+            encoder_module = skipthoughts
+            sent_encoder = encoder_module.load_model(path_to_models=filepath)
+
+        else:
+            encoder_module = encoder_tools
+            sent_encoder = encoder_module.load_model(embed_map=word_embeddings, 
+                                                     path_to_model=filepath + '/encoder', 
+                                                     path_to_dictionary=filepath + '/lexicon')
+            
+        transformer = SkipthoughtsTransformer(encoder_module=encoder_module, 
+                                              encoder=sent_encoder,
+                                              encoder_dim=n_nodes, verbose=verbose)
+
+        print 'loaded skipthoughts encoder from', filepath
+
+        return transformer
+
+class WordEmbeddings():
+    def __init__(self, embs_filepath, lexicon_filepath, embs=None, lexicon=None):
+        self.embs_filepath = embs_filepath
+        self.lexicon_filepath = lexicon_filepath
+        if embs is not None:
+            numpy.save(self.embs_filepath, embs)
+        self.embs = numpy.load(self.embs_filepath, mmap_mode='r')
+        self.vector_size = self.embs.shape[-1]
+        if lexicon is None:
+            with open(self.lexicon_filepath, 'rb') as f:
+                lexicon = pickle.load(f)
+        else: #save lexicon
+            with open(self.lexicon_filepath, 'wb') as f:
+                pickle.dump(lexicon, f)
+        self.lexicon = lexicon
+    def __getitem__(self, word):
+        word_emb = self.embs[self.lexicon[word]]
+        return word_emb
+    def __contains__(self, word):
+        return word in self.lexicon
+    @classmethod
+    def load(cls, embs_filepath, lexicon_filepath):
+        word_embs = WordEmbeddings(embs_filepath, lexicon_filepath)
+        return word_embs
+
 
 
 

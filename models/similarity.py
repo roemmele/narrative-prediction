@@ -4,9 +4,9 @@ from gensim.matutils import Dense2Corpus, dense2vec, cossim
 
 from models.transformer import *
 
-import story_corpus
-reload(story_corpus)
-from story_corpus import *
+import blog_fiction.story_corpus
+reload(blog_fiction.story_corpus)
+from story_corpus.blog_fiction import *
 
 
 class SequenceYielder():

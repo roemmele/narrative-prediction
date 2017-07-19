@@ -101,27 +101,6 @@ def lookup_counts_for_n(filepath, n):
     assert(len(ngrams) == len(counts))
     return ngrams, counts
 
-    
-# def lookup_ngram_count(filepath, ngram):
-#     '''specify a particular ngram to retrieve counts for'''
-
-#     db = sqlite3.connect(filepath)
-#     cursor = db.cursor()
-
-#     n = len(ngram)
-#     ngram = ngram + (-1,) * (5 - len(ngram))
-#     cursor.execute("SELECT * FROM ngram WHERE word1 = ? AND word2 = ? AND word3 = ?\
-#                     AND word4 = ? AND word5 = ?", ngram)
-        
-#     ngram_count = cursor.fetchone()
-#     cursor.close()
-#     db.close()
-    
-#     if not ngram_count:
-#         return 0
-#     else:
-#         return ngram_count[-1]
-
 def add_ngrams_to_model(transformer, seqs, n_min, n_max, filepath):
 
     for n_idx in range(n_min, n_max+1):
