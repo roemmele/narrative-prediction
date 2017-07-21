@@ -1,6 +1,5 @@
+from __future__ import print_function
 import pandas, argparse, numpy
-import models.pipeline
-reload(models.pipeline)
 from models.pipeline import *
 
 def load_train_seqs(train_seqs_file):
@@ -8,11 +7,11 @@ def load_train_seqs(train_seqs_file):
 	train_seqs = (seqs[0].values.tolist() for seqs in pandas.read_csv(train_seqs_file, encoding='utf-8', header=None, chunksize=10000))
 	return train_seqs
 
-def create_model(save_filepath, use_features, use_pos, min_freq, generalize_ents, batch_size, n_timesteps, n_hidden_layers, 
-				n_embedding_nodes, n_hidden_nodes, n_pos_nodes=None, n_feature_nodes=None):
+def create_model(save_filepath, use_features=False, use_pos=False, min_freq=5, generalize_ents=False, batch_size=25, n_timesteps=15, n_hidden_layers=2, 
+				n_embedding_nodes=300, n_hidden_nodes=500, n_pos_nodes=100, n_feature_nodes=100):
 
 	if os.path.exists(save_filepath + '/transformer.pkl'): #if transformer already exists, load it
-	    transformer = load_transformer(save_filepath)
+	    transformer = SequenceTransformer.load(save_filepath)
 	else:
 	    transformer = SequenceTransformer(min_freq=min_freq, generalize_ents=generalize_ents, verbose=1, filepath=save_filepath)
 
@@ -30,25 +29,24 @@ def train_model(train_seqs_file, model, n_epochs):
 			model.transformer.make_lexicon(seqs)
 
 	for epoch in range(n_epochs):
-	    print "training epoch {}/{}...".format(epoch + 1, n_epochs)
-	    for seqs in load_train_seqs(train_seqs_file):
+		print("training epoch {}/{}...".format(epoch + 1, n_epochs))
+		for seqs in load_train_seqs(train_seqs_file):
 			model.fit(seqs=seqs)
 			#sample some training sequences to show progress, generating final sentence in each sequence
-			samp_seqs = [segment(seq) for seq in random.sample(seqs, min(25, len(seqs)))]
+			samp_seqs = [segment(seq) for seq in random.sample(seqs, min(5, len(seqs)))]
 			context_seqs = [" ".join(seq[:-1]) for seq in samp_seqs]
 			gold_seqs = [seq[-1] for seq in samp_seqs]
 			gen_seqs = model.predict(seqs=context_seqs, n_best=1, mode='random', batch_size=len(samp_seqs),
 			                          temp=1.0, n_sents_per_seq=1, detokenize=True, adapt_ents=True)
 			for context_seq, gold_seq, gen_seq in zip(context_seqs, gold_seqs, gen_seqs):
-			    print "CONTEXT:", context_seq
-			    print "GOLD:", gold_seq
-			    print "GENERATED:", gen_seq, "\n"
+				print("CONTEXT:", context_seq)
+				print("GOLD:", gold_seq)
+				print("GENERATED:", gen_seq, "\n")
 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Given a file of context sequences, generate continuations of these sequences.")
 	parser.add_argument("--train_seqs", "-train", help="Specify filename (.csv) containing training sequences.", type=str, required=True)
-	#parser.add_argument("--model_type", "-mod", help="Specify the type of model that should be used to generate the sequences. See list of choices.", choices=['feature_rnn', 'rnn'], required=True)
 	parser.add_argument("--use_features", "-ufeat", help="If given, the model will be trained on noun features in additon to word sequences.", required=False, action='store_true')
 	parser.add_argument("--use_pos", "-upos", help="If given, the model will be trained on POS tags in addition to word sequences.", required=False, action='store_true')
 	parser.add_argument("--save_filepath", "-save", help="Specify the directory filepath where the trained model should be stored.", type=str, required=True)
@@ -67,7 +65,7 @@ if __name__ == '__main__':
 	parser.add_argument("--n_epochs", "-epoch", help="Specify the number of epochs the model should be trained for. Default is 10.", required=False, type=int, default=10)
 	args = parser.parse_args()
 
- 	model = create_model(save_filepath=args.save_filepath, use_features=args.use_features, use_pos=args.use_pos, min_freq=args.min_freq, generalize_ents=args.generalize_ents, 
+	model = create_model(save_filepath=args.save_filepath, use_features=args.use_features, use_pos=args.use_pos, min_freq=args.min_freq, generalize_ents=args.generalize_ents, 
  						batch_size=args.batch_size, n_timesteps=args.n_timesteps, n_hidden_layers=args.n_hidden_layers, 
  						n_embedding_nodes=args.n_embedding_nodes, n_hidden_nodes=args.n_hidden_nodes, n_feature_nodes=args.n_feature_nodes, n_pos_nodes=args.n_pos_nodes)
 	train_model(train_seqs_file=args.train_seqs, model=model, n_epochs=args.n_epochs)

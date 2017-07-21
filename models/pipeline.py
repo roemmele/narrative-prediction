@@ -1,15 +1,9 @@
 '''The Pipeline classes interface between the model transformers (e.g. strings to numbers) and classifiers (e.g. Keras networks that take numbers as input)'''
 
-import six, pickle, warnings, os
-# from sklearn.pipeline import Pipeline
-from gensim.models.word2vec import Word2Vec
+import pickle, warnings, os
 from keras.models import load_model
-import transformer
-reload(transformer)
-from transformer import *
-import classifier
-reload(classifier)
-from classifier import *
+from models.transformer import *
+from models.classifier import *
 
 warnings.filterwarnings('ignore', category=Warning)
 
@@ -46,7 +40,7 @@ class RNNLMPipeline():
         if self.transformer.generalize_ents:
             seqs = self.transformer.replace_ents_in_seqs(seqs)
         num_seqs = self.transformer.text_to_nums(seqs)
-        print "generating sequences..."
+        print("generating sequences...")
         if self.classifier.use_features: #include additional context features in RNNLM
             feature_vecs = self.transformer.num_seqs_to_counts([self.transformer.tok_seq_to_nums(seq) for seq in self.transformer.seqs_to_feature_words(seqs)])
         else:
@@ -58,7 +52,7 @@ class RNNLMPipeline():
         else:
             gen_seqs = self.classifier.predict(seqs=num_seqs, feature_vecs=feature_vecs, max_length=max_length, mode=mode, batch_size=batch_size, n_best=n_best,
                                                 temp=temp, prevent_unk=prevent_unk)
-        print "decoding generated sequences..."
+        print("decoding generated sequences...")
         gen_seqs = self.transformer.decode_num_seqs(gen_seqs, n_sents_per_seq=n_sents_per_seq, eos_tokens=eos_tokens, detokenize=detokenize, ents=ents,
                                                     capitalize_ents=capitalize_ents, adapt_ents=adapt_ents)
         return gen_seqs
@@ -70,7 +64,7 @@ class RNNLMPipeline():
 
         pred_seqs = []
 
-        for batch_index in xrange(0, len(num_seqs), batch_size):
+        for batch_index in range(0, len(num_seqs), batch_size):
             if self.classifier.use_features:
                 batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
             else:
@@ -85,7 +79,7 @@ class RNNLMPipeline():
 
             p_next_words = self.classifier.get_batch_p_next_words(words=batch_seqs[:,-1], pos=batch_pos[:,-1], features=batch_features)
 
-            for idx in xrange(max_length): #now predict
+            for idx in range(max_length): #now predict
                 next_words, p_next_words = self.classifier.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
                 batch_pred_seqs[:, idx] = next_words
                 batch_decoded_seqs = self.transformer.decode_num_seqs(batch_pred_seqs[:, :idx+1], detokenize=True, ents=ents, capitalize_ents=True, adapt_ents=True) #transform generated word indices back into string for pos tagging
@@ -98,7 +92,7 @@ class RNNLMPipeline():
             pred_seqs.extend(batch_pred_seqs)
 
             if batch_index and batch_index % 1000 == 0:
-                print "generated new sequences for {}/{} inputs...".format(batch_index, len(num_seqs))
+                print("generated new sequences for {}/{} inputs...".format(batch_index, len(num_seqs)))
 
         return pred_seqs
 
@@ -141,7 +135,7 @@ class MLPLMPipeline():
         seqs = self.transformer.text_to_nums(seqs)
         gen_seqs = self.classifier.predict(seqs=seqs, max_length=max_length, mode=mode, batch_size=batch_size, n_best=n_best,
                                             temp=temp, prevent_unk=prevent_unk)
-        print "decoding generated sequences..."
+        print("decoding generated sequences...")
         gen_seqs = self.transformer.decode_num_seqs(gen_seqs, n_sents_per_seq=n_sents_per_seq, eos_tokens=eos_tokens, detokenize=detokenize, ents=ents,
                                                     capitalize_ents=capitalize_ents, adapt_ents=adapt_ents)
         return gen_seqs
@@ -174,10 +168,39 @@ class CausalEmbeddingsPipeline():
                 causal_pairs = get_causal_pairs(cause_seq, effect_seq) #get all pairs of words in this sequence window
                 true_causal_pairs.extend(causal_pairs)
         false_causal_pairs = numpy.array(reverse_pairs(true_causal_pairs))
-        random_pairs = rng.permutation(numpy.array(true_causal_pairs).flatten()).reshape((-1, 2))[:len(true_causal_pairs) / 3]
+        random_pairs = rng.permutation(numpy.array(true_causal_pairs).flatten()).reshape((-1, 2))[:len(true_causal_pairs) / 5]
         false_causal_pairs = numpy.concatenate((false_causal_pairs, random_pairs))
         causal_pairs = numpy.concatenate((numpy.array(true_causal_pairs), false_causal_pairs))
         labels = numpy.concatenate((numpy.ones(len(true_causal_pairs)), numpy.zeros(len(false_causal_pairs))))
+        self.classifier.fit(cause_words=causal_pairs[:, 0, None], effect_words=causal_pairs[:, 1, None], labels=labels, lexicon_size=self.transformer.lexicon_size, n_epochs=n_epochs)
+    def predict(self, seq1, seq2):
+        '''return a total score for the causal relatedness between seq1 and seq2'''
+        seq1, seq2 = self.transformer.text_to_nums([seq1, seq2])
+        causal_pairs = numpy.array(get_causal_pairs(seq1, seq2))
+        prob = numpy.mean(self.classifier.predict(cause_words=causal_pairs[:, 0, None], effect_words=causal_pairs[:, 1, None]))
+        return prob
+    @classmethod
+    def load(cls, filepath):
+        return load_pipeline(cls, filepath)
+
+class RNNBinaryPipeline():
+    def __init__(self, transformer, classifier):
+        self.transformer = transformer
+        self.classifier = classifier
+    def fit(self, seqs, n_epochs=10):
+        if not self.transformer.lexicon:
+            self.transformer.make_lexicon(seqs)
+        true_pairs = []
+        for seq in seqs:
+            seq = segment(seq)
+            seq = self.transformer.text_to_nums(seq)
+            for sent_idx in range(0, len(seq) - 1, 2):
+                true_pairs.extend([seq[sent_idx], seq[sent_idx + 1]])
+        reversed_pairs = numpy.array(reverse_pairs(true_pairs))
+        random_pairs = rng.permutation(numpy.array(true_pairs).flatten()).reshape((-1, 2))[:len(true_pairs) / 5]
+        false_pairs = numpy.concatenate((reversed_pairs, random_pairs))
+        pairs = numpy.concatenate((numpy.array(true_pairs), false_pairs))
+        labels = numpy.concatenate((numpy.ones(len(true_pairs)), numpy.zeros(len(false_pairs))))
         self.classifier.fit(cause_words=causal_pairs[:, 0, None], effect_words=causal_pairs[:, 1, None], labels=labels, lexicon_size=self.transformer.lexicon_size, n_epochs=n_epochs)
     def predict(self, seq1, seq2):
         '''return a total score for the causal relatedness between seq1 and seq2'''
@@ -245,14 +268,14 @@ class SeqBinaryPipeline():
             input_seqs = numpy.load(input_seqs_filepath, mmap_mode='r')
             output_seqs = numpy.load(output_seqs_filepath, mmap_mode='r')
         
-        print "added", len(input_seqs), "positive examples"
-        print "added", len(input_seqs) * n_neg_per_seq, "negative examples"
-        print "examples divided into", n_chunks, "chunks for training"
+        print("added", len(input_seqs), "positive examples")
+        print("added", len(input_seqs) * n_neg_per_seq, "negative examples")
+        print("examples divided into", n_chunks, "chunks for training")
 
                 #import pdb;pdb.set_trace()
         seqs_per_chunk = len(input_seqs) / n_chunks
         for epoch in range(n_epochs):
-            print "TRAINING EPOCH {}/{}".format(epoch + 1, n_epochs)
+            print("TRAINING EPOCH {}/{}".format(epoch + 1, n_epochs))
             for chunk_idx in range(n_chunks):
                 chunk_input_seqs = input_seqs[chunk_idx * seqs_per_chunk: (chunk_idx + 1) * seqs_per_chunk]
                 chunk_output_seqs = output_seqs[chunk_idx * seqs_per_chunk: (chunk_idx + 1) * seqs_per_chunk]
@@ -288,34 +311,14 @@ class RNNPipeline():
         self.transformer = transformer
         self.classifier = classifier
     def fit(self, seqs, y_seqs=None, y_classes=None):
-        # if self.transformer.lexicon:
-        #     X = self.transformer.transform(X)
-        #     y_seqs = self.transformer.transform(y_seqs)
-        # else:
         seqs = self.transformer.fit_transform(seqs)
         if y_seqs is not None:
             y_seqs = self.transformer.fit_transform(y_seqs)
-        # if self.classifier.__class__.__name__ in ('RNNLM', 'MLPLM'):
-        #     params['lexicon_size'] = self.transformer.lexicon_size
-        #     #self.classifier.fit_epoch(X, y_seqs, **params)
-        #     self.classifier.fit_epoch(seqs, y_seqs, **params)
-        # else:
         self.classifier.fit(seqs, y_seqs, y_classes, **params)
     def predict(self, seqs, y_seqs=None, **params):
         seqs = self.transformer.transform(seqs)
         if y_seqs is not None:
             y_seqs = self.transformer.transform(y_seqs)
-        # if self.classifier.__class__.__name__ in ('RNNLM', 'MLPLM'):
-        #     gen_params = {param:value for param,value in params.items() if param not in ('cap_ents', 'adapt_ents', 'detokenize')}
-        #     if 'eos_tokens' in params:
-        #         gen_params['eos_tokens'] = self.transformer.lookup_eos(params['eos_tokens']) #convert end-of-sentence markers to indices
-        #     gen_seqs, prob_seqs = self.classifier.predict(seqs, **gen_params)
-        #     decode_params = {param:value for param, value in params.items() if param in ('eos_tokens', 'cap_ents',\
-        #                                                                                 'adapt_ents', 'detokenize')}
-        #     print "decoding generated sentences..."
-        #     gen_seqs = [self.transformer.decode_seqs(seq, **decode_params) for seq in gen_seqs]
-        #     return gen_seqs, prob_seqs
-        # else:
         return self.classifier.predict(seqs, y_seqs, **params)
     def evaluate(self, seqs):
         seqs = self.transformer.transform(seqs)
@@ -346,30 +349,30 @@ class RNNPipeline():
 #     return model
 
 
-class AutoencoderPipeline():
-    #sklearn pipeline won't pass extra parameters other than input data between steps
-    def _pre_transform(self, X, y_seqs=None, **fit_params):
-        fit_params_steps = dict((step, {}) for step, _ in self.steps)
-        for pname, pval in six.iteritems(fit_params):
-            step, param = pname.split('__', 1)
-            fit_params_steps[step][param] = pval
-        Xt = X
-        for name, transform in self.steps[:-1]:
-            Xt, y_seqs = transform.fit(Xt, y_seqs, **fit_params_steps[name]).transform(Xt, y_seqs)
-        return Xt, y_seqs, fit_params_steps[self.steps[-1][0]]
-    def fit(self, X, y=None, y_seqs=None, **fit_params):
-        #import pdb;pdb.set_trace()
-        Xt, y, fit_params = self._pre_transform(X, y_seqs, **fit_params)
-        self.steps[-1][-1].fit(Xt, y, **fit_params)
-        return self
-    def predict(self, X, y_choices=None):
-        #check if y_choices is single set or if there are different choices for each input
+# class AutoencoderPipeline():
+#     #sklearn pipeline won't pass extra parameters other than input data between steps
+#     def _pre_transform(self, X, y_seqs=None, **fit_params):
+#         fit_params_steps = dict((step, {}) for step, _ in self.steps)
+#         for pname, pval in six.iteritems(fit_params):
+#             step, param = pname.split('__', 1)
+#             fit_params_steps[step][param] = pval
+#         Xt = X
+#         for name, transform in self.steps[:-1]:
+#             Xt, y_seqs = transform.fit(Xt, y_seqs, **fit_params_steps[name]).transform(Xt, y_seqs)
+#         return Xt, y_seqs, fit_params_steps[self.steps[-1][0]]
+#     def fit(self, X, y=None, y_seqs=None, **fit_params):
+#         #import pdb;pdb.set_trace()
+#         Xt, y, fit_params = self._pre_transform(X, y_seqs, **fit_params)
+#         self.steps[-1][-1].fit(Xt, y, **fit_params)
+#         return self
+#     def predict(self, X, y_choices=None):
+#         #check if y_choices is single set or if there are different choices for each input
         
-        #import pdb;pdb.set_trace()
-        Xt = X
-        for name, transform in self.steps[:-1]:
-            Xt, y_choices = transform.transform(Xt, y_choices)
-        if y_choices is not None:
-            return self.steps[-1][-1].predict(Xt, y_choices)
-        else:
-            return self.steps[-1][-1].predict(Xt)
+#         #import pdb;pdb.set_trace()
+#         Xt = X
+#         for name, transform in self.steps[:-1]:
+#             Xt, y_choices = transform.transform(Xt, y_choices)
+#         if y_choices is not None:
+#             return self.steps[-1][-1].predict(Xt, y_choices)
+#         else:
+#             return self.steps[-1][-1].predict(Xt)

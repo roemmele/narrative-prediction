@@ -1,36 +1,34 @@
+from __future__ import print_function
 import pandas, argparse, numpy
-import models.pipeline
-reload(models.pipeline)
 from models.pipeline import *
 
-def generate(context_seqs, model, save_prefix, gen_mode='random', temperature=1.0, n_gen_per_context=1, n_sents_per_seq=1, eos_tokens=[], 
+def generate(context_seqs_file, model, save_filepath, gen_mode='random', temperature=1.0, n_gen_per_context=1, n_sents_per_seq=1, eos_tokens=[], 
 			detokenize=True, capitalize_ents=True, adapt_ents=True, batch_size=1000):
 
+	context_seqs = pandas.read_csv(context_seqs_file, encoding='utf-8', header=None).loc[:,0].values.tolist()
 	batch_size = min(batch_size, len(context_seqs))
 	gen_seqs = model.predict([context_seqs[idx] for idx in numpy.arange(len(context_seqs)).repeat(n_gen_per_context)], mode=gen_mode,
 							batch_size=batch_size, temp=temperature, n_sents_per_seq=n_sents_per_seq, eos_tokens=eos_tokens, detokenize=detokenize,
 							capitalize_ents=capitalize_ents, adapt_ents=adapt_ents)
 	gen_seqs = [gen_seqs[idx:idx + n_gen_per_context] for idx in range(0, len(context_seqs) * n_gen_per_context, n_gen_per_context)]
-	save_filepath = save_prefix + str(len(context_seqs)) + '_' + str(n_gen_per_context) + '.csv'
+	#save_filepath = save_prefix + str(len(context_seqs)) + '_' + str(n_gen_per_context) + '.csv'
 	pandas.DataFrame(gen_seqs).to_csv(save_filepath, header=False, index=False, encoding='utf-8')
-	print "saved generated sequences to", save_filepath
-	print "SAMPLE OF GENERATED SEQUENCES:"
-	print "----------------------------------------------------------\n"
-	for context_seq, gen_seqs_ in zip(context_seqs, gen_seqs)[:100]: #print a sample of the generated sequences
-		print "CONTEXT:", context_seq
+	print("saved generated sequences to", save_filepath)
+	print("SAMPLE OF GENERATED SEQUENCES:")
+	print("----------------------------------------------------------\n")
+	for context_seq, gen_seqs_ in zip(context_seqs[:100], gen_seqs[:100]): #print a sample of the generated sequences
+		print("CONTEXT:", context_seq)
 		for gen_seq in gen_seqs_:
-			print "GENERATED:", gen_seq
-		print "\n"
+			print("GENERATED:", gen_seq)
+		print("\n")
 	return gen_seqs
 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Given a file of context sequences, generate continuations of these sequences.")
 	parser.add_argument("--context_seqs", "-cont", help="Specify filename (.csv) containing context sequences.", type=str, required=True)
-	#parser.add_argument("--model", "-mod", help="Specify the type of model that should be used to generate the sequences. See list of choices.", choices=['nneighors', 'rnn'], required=True)
-	parser.add_argument("--model_filepath", "-modfp", help="Specify the filepath where the trained model is stored.", type=str, required=True)
-	parser.add_argument("--save_prefix", "-save", help="Specify the prefix of the filepath where the generated sequences should be saved.\
-													Number of context sequences and number of generated sequences will be appended to this prefix as full filepath.", type=str, required=True)
+	parser.add_argument("--model_filepath", "-modfp", help="Specify the filepath directory where the trained model is stored.", type=str, required=True)
+	parser.add_argument("--save_filepath", "-save", help="Specify the .csv filename where the generated sequences should be saved.", type=str, required=True)
 	parser.add_argument("--gen_mode", "-gmode", help="Specify what method should be used to generate sequences: either through random sampling (random) or by taking the max probability (max).\
 													Default is random.", choices=['random', 'max'], required=False, default='random')
 	parser.add_argument("--temperature", "-temp", help="When generation mode is random, specify the temperature variable for sampling. Default is 1 (most random).",
@@ -47,7 +45,6 @@ if __name__ == '__main__':
 	# 													Note that if trained model did not generalize entities, this will not apply. ", required=False, default=True, type=bool)
 	args = parser.parse_args()
 
-	context_seqs = pandas.read_csv(args.context_seqs, encoding='utf-8', header=None).loc[:,0].values.tolist()
-	model = load_rnnlm_pipeline(args.model_filepath)
-	gen_seqs = generate(context_seqs=context_seqs, model=model, save_prefix=args.save_prefix, gen_mode=args.gen_mode, temperature=args.temperature, n_gen_per_context=args.n_gen_per_context, 
+	model = RNNLMPipeline.load(args.model_filepath)
+	gen_seqs = generate(context_seqs_file=args.context_seqs, model=model, save_filepath=args.save_filepath, gen_mode=args.gen_mode, temperature=args.temperature, n_gen_per_context=args.n_gen_per_context, 
 						n_sents_per_seq=args.n_sents_per_seq, eos_tokens=args.eos_tokens)#, detokenize=args.detokenize, capitalize_ents=args.capitalize_ents, adapt_ents=args.adapt_ents)

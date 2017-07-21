@@ -1,9 +1,11 @@
+from __future__ import print_function
 import numpy, os, spacy, pickle, sys, re, random
 from itertools import *
-from sklearn.preprocessing import FunctionTransformer
-from sklearn.feature_extraction.text import CountVectorizer
+# from sklearn.preprocessing import FunctionTransformer
+# from sklearn.feature_extraction.text import CountVectorizer
 from keras.preprocessing.sequence import pad_sequences
 
+''' SKIPTHOUGHTS
 sys.path.append('skip-thoughts-master')
 sys.path.append('../skip-thoughts-master')
 import skipthoughts
@@ -11,7 +13,7 @@ reload(skipthoughts)
 from training import vocab
 from training import train as encoder_train
 from training import tools as encoder_tools
-reload(encoder_tools)
+reload(encoder_tools)'''
 
 #load spacy model for nlp tools
 encoder = spacy.load('en')
@@ -96,10 +98,7 @@ def number_ents(ents):
     with numerical suffixes to distinguish entities of the same type'''
     ent_type_counts = {}
     num_ents = {}
-    #print ents
     for ent, ent_type in ents.items():
-        #print num_ents
-        #print ent, ent_type
         coref_ent = [num_ent for num_ent in num_ents if num_ent.split()[0] == ent.split()[0] and ents[num_ent] == ent_type] #treat ents with same first word as co-referring
         if coref_ent:
             num_ents[ent] = num_ents[coref_ent[0]]
@@ -115,10 +114,10 @@ def number_ents(ents):
     return num_ents
 
 
-def adapt_seq_ents(seq, ents={}, sub_ent_probs={}):
+def adapt_tok_seq_ents(seq, ents={}, sub_ent_probs={}):
 
-    if type(seq) in (str, unicode):
-        seq = tokenize(seq, lowercase=False)
+    # if type(seq) not in (tuple, list):
+    #     seq = tokenize(seq, lowercase=False)
 
     ents = {ent_type:ent for ent,ent_type in ents.items()} #reverse ents so that types map to names
     adapted_seq_ents = {"_".join(token.split("_")[1:]):None for token in seq if token.startswith('ENT_')}
@@ -154,13 +153,12 @@ def adapt_seq_ents(seq, ents={}, sub_ent_probs={}):
     seq = [adapted_seq_ents["_" .join(token.split("_")[1:])] if "_" .join(token.split("_")[1:]) in adapted_seq_ents else token for token in seq]
     return seq
 
-def detokenize_seq(seq, ents=[]):
+def detokenize_tok_seq(seq, ents=[]):
     '''use simple rules for transforming list of tokens back into string
     ents is optional list of words (named entities) that should be capitalized'''
-    if type(seq) in (str, unicode):
-        seq = tokenize(seq, lowercase=False)
+    # if type(seq) in (str, unicode):
+    #     seq = tokenize(seq, lowercase=False)
     seq = [sent.split() for sent in segment(" ".join(seq))] #split sequence into sentences
-    #print seq
     detok_seq = []
     for sent_idx, sent in enumerate(seq):
 
@@ -240,7 +238,6 @@ def detokenize_seq(seq, ents=[]):
         detok_seq.append(detok_sent)
 
     detok_seq = " ".join(detok_seq)
-    #print detok_seq
     return detok_seq
 
 def filter_gen_seq(seq, n_sents=1, eos_tokens=[]):
@@ -271,10 +268,8 @@ def load_seqs(filepath, memmap=False, shape=None):
         seqs = numpy.memmap(filepath, dtype='float64', mode='r', shape=shape)
     else:
         seqs = numpy.load(filepath, mmap_mode='r')
-    print "loaded sequences from filepath", filepath
+    print("loaded sequences from filepath", filepath)
     return seqs
-
-
 
 
 def resave_transformer_nosklearn(old_transformer):
@@ -290,7 +285,7 @@ def resave_transformer_nosklearn(old_transformer):
     else:
         new_transformer.word_counts = {}
     new_transformer.min_freq = old_transformer.min_freq
-    new_transformer.max_length = old_transformer.max_length
+    #new_transformer.max_length = old_transformer.max_length
     new_transformer.verbose = old_transformer.verbose
     #new_transformer.embed_y = old_transformer.embed_y
     if hasattr(old_transformer, 'generalize_ents'):
@@ -312,20 +307,20 @@ class SequenceTransformer():#):
         self.word_embeddings = word_embeddings #use existing word embeddings if given
         if self.word_embeddings:
             self.n_embedding_nodes = self.word_embeddings.vector_size
-        self.pad_seq = pad_seq
+        # self.pad_seq = pad_seq
         self.lexicon = lexicon
         self.lemmatize = lemmatize
         self.include_tags = include_tags
         self.word_counts = {}
         self.min_freq = min_freq
-        self.max_length = max_length
+        # self.max_length = max_length
         self.verbose = verbose
         self.generalize_ents = generalize_ents #specify if named entities should be replaced with generic labels
         self.ent_counts = {}
         self.reduce_emb_mode = reduce_emb_mode #specify if embeddings should be combined across sequence (e.g. take mean, sum)
         self.filepath = filepath
         if self.verbose:
-            print "Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embeddings')}
+            print("Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embeddings')})
 
     def make_lexicon(self, seqs):
 
@@ -363,7 +358,7 @@ class SequenceTransformer():#):
         if self.filepath: #if filepath given, save transformer
             self.save()
         if self.verbose:
-            print "added lexicon of", self.lexicon_size, "words with frequency >=", self.min_freq
+            print("added lexicon of", self.lexicon_size, "words with frequency >=", self.min_freq)
 
     def replace_ents_in_seqs(self, seqs):
         '''extract entities from seqs and replace them with their entity types'''
@@ -433,12 +428,12 @@ class SequenceTransformer():#):
             #import pdb;pdb.set_trace()
             seq = [self.lexicon_lookup[word] if self.lexicon_lookup[word] else self.unk_word for word in seq]
             if ents and adapt_ents: #replace generated entities with those given in ents
-                seq = adapt_seq_ents(seq, ents=ents[seq_idx], sub_ent_probs=ent_counts_to_probs(self.ent_counts))
+                seq = adapt_tok_seq_ents(seq, ents=ents[seq_idx], sub_ent_probs=ent_counts_to_probs(self.ent_counts))
             if detokenize: #apply rules for transforming token list into formatted sequence
                 if ents and capitalize_ents:
-                    seq = detokenize_seq(seq, ents=ents[seq_idx])#, named_ents=named_ents) #detokenize; pass a list of words that should be capitalized
+                    seq = detokenize_tok_seq(seq, ents=ents[seq_idx])#, named_ents=named_ents) #detokenize; pass a list of words that should be capitalized
                 else:
-                    seq = detokenize_seq(seq, ents=[])
+                    seq = detokenize_tok_seq(seq, ents=[])
             else:
                 seq = " ".join(seq) #otherwise just join tokens with whitespace between each
             if eos_tokens: #if filter_n_sents is a number, filter generated sequence to only the first N=filter_n_sents sentences
@@ -468,30 +463,13 @@ class SequenceTransformer():#):
                     seq = numpy.sum(seq, axis=0)
             embedded_seqs.append(seq)
         return embedded_seqs
-    
-    
-    def set_max_length(self, seqs):
-        self.max_length = max([len(tokenize(seq)) for seq in seqs])
-        if self.verbose:
-            print self.max_length, "words in longest sequence"
             
-    def pad_nums(self, seqs):
+    def pad_nums(self, seqs, max_length=None):
         #import pdb;pdb.set_trace()
-        seqs = [pad_sequences(sequences=seq, maxlen=self.max_length)
-               for seq in seqs]
-                
-        seqs = numpy.array(seqs)
-        return seqs
+        if not max_length:
+            max_length = max([len(seq) for seq in seqs])
 
-    def pad_embeddings(self, seqs):
-        #import pdb;pdb.set_trace()
-        assert(type(seqs[0]) is list and len(seqs[0][0].shape) == 2)
-        #input sequences are a list of sentences
-        seqs = [numpy.array([numpy.append(sent, numpy.zeros((self.max_length - len(sent),
-                self.word_embeddings.n_embedding_nodes)), axis=0)
-                for sent in seq]) for seq in seqs]
-        
-        seqs = numpy.array(seqs)
+        seqs = pad_sequences(sequences=seqs, maxlen=max_length)
         return seqs
 
     def seqs_to_feature_words(self, seqs, include_pos=('NOUN', 'PRON', 'PROPN')):
@@ -521,11 +499,11 @@ class SequenceTransformer():#):
         with open(self.filepath + '/transformer.pkl', 'wb') as f:
             pickle.dump(self, f)
 
-        print "Saved transformer to", self.filepath + '/transformer.pkl'
+        print('Saved transformer to', self.filepath + '/transformer.pkl')
         
     def __getstate__(self):
         #don't save embeddings
-        state = dict((k, v) for (k, v) in self.__dict__.iteritems() if k not in ('word_embeddings'))
+        state = dict((k, v) for (k, v) in self.__dict__.items() if k not in ('word_embeddings'))
         state.update({'word_embeddings': None})
         return state
 
@@ -534,9 +512,10 @@ class SequenceTransformer():#):
         with open(filepath + '/transformer.pkl', 'rb') as f:
             transformer = pickle.load(f)
         transformer.word_embeddings = word_embeddings
-        print 'loaded transformer with', transformer.lexicon_size, 'words from', str(filepath) + '/transformer.pkl'
+        print('loaded transformer with', transformer.lexicon_size, 'words from', str(filepath) + '/transformer.pkl')
         return transformer
 
+'''
 class SkipthoughtsTransformer(SequenceTransformer):
     def __init__(self, encoder_module=skipthoughts, encoder=None, encoder_dim=4800, verbose=True):
         self.encoder_module = encoder_module
@@ -565,15 +544,15 @@ class SkipthoughtsTransformer(SequenceTransformer):
             encoded_seqs = numpy.zeros(seqs_shape)
 
         chunk_size = 500000
-        for seq_idx in xrange(0, len(seqs), chunk_size):
+        for seq_idx in range(0, len(seqs), chunk_size):
             #memory errors if encoding a large number of stories
             encoded_seqs[seq_idx:seq_idx + chunk_size] = self.encoder_module.encode(self.encoder, 
                                                                                     seqs[seq_idx:seq_idx + chunk_size], verbose=self.verbose)
         
         if type(seq_length) in (list, tuple, numpy.ndarray):
             #different lengths per sequence
-            idxs = [numpy.sum(seq_length[:idx]) for idx in xrange(len(seq_length))] + [None] #add -1 for last entry
-            encoded_seqs = [encoded_seqs[idxs[start]:idxs[start+1]] for start in xrange(len(idxs) - 1)]
+            idxs = [numpy.sum(seq_length[:idx]) for idx in range(len(seq_length))] + [None] #add -1 for last entry
+            encoded_seqs = [encoded_seqs[idxs[start]:idxs[start+1]] for start in range(len(idxs) - 1)]
         else:
             encoded_seqs = encoded_seqs.reshape(n_seqs, seq_length, self.encoder_dim)
             
@@ -596,9 +575,10 @@ class SkipthoughtsTransformer(SequenceTransformer):
                                               encoder=sent_encoder,
                                               encoder_dim=n_nodes, verbose=verbose)
 
-        print 'loaded skipthoughts encoder from', filepath
+        print('loaded skipthoughts encoder from', filepath)
 
         return transformer
+'''
 
 class WordEmbeddings():
     def __init__(self, embs_filepath, lexicon_filepath, embs=None, lexicon=None):
