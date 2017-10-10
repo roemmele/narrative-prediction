@@ -618,7 +618,7 @@ class SequenceTransformer():#):
         return transformer
 
 
-class SkipthoughtsTransformer(SequenceTransformer):
+'''class SkipthoughtsTransformer(SequenceTransformer):
     def __init__(self, encoder_module=skipthoughts, filepath=None, encoder_dim=4800, verbose=True):
         self.encoder_module = encoder_module
         self.filepath = filepath
@@ -681,7 +681,7 @@ class SkipthoughtsTransformer(SequenceTransformer):
         print('loaded skipthoughts encoder from', filepath)
 
         return transformer
-
+'''
 
 class WordEmbeddings():
     def __init__(self, embs_filepath, lexicon_filepath, embs=None, lexicon=None):
