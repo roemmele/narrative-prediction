@@ -6,14 +6,14 @@ from itertools import *
 #from keras.preprocessing.sequence import pad_sequences
 
 #SKIPTHOUGHTS
-sys.path.append('skip-thoughts-master')
+'''sys.path.append('skip-thoughts-master')
 sys.path.append('../skip-thoughts-master')
 import skipthoughts
 reload(skipthoughts)
 from training import vocab
 from training import train as encoder_train
 from training import tools as encoder_tools
-reload(encoder_tools)
+reload(encoder_tools)'''
 
 #load spacy model for nlp tools
 encoder = spacy.load('en')
