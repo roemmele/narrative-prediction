@@ -123,6 +123,13 @@ python generate_sequences.py --context_seqs CONTEXT_SEQS --model_filepath
                         Specify the length of generated sequences in terms of
                         the number of sentences. Default is one sentence per
                         sequence.
+  --n_context_sents N_CONTEXT_SENTS, -ncont N_CONTEXT_SENTS
+  		    	Specify if the context should be truncated so that
+			only the N most recent sentences are taken into
+			account when generating the next sequence. If the
+			model uses feature vectors, the features will still
+			take into account the whole context. Default is -1,
+			which means all context sentences will be included.
   --eos_tokens EOS_TOKENS [EOS_TOKENS ...], -eos EOS_TOKENS [EOS_TOKENS ...]
                         If sentence boundaries should be determined by the
                         occurence of specific end-of-sentence tokens, specify
@@ -140,6 +147,6 @@ from generate_sequences import *
 model = RNNLMPipeline.load(filepath=example_model)
 gen_seqs = generate(context_seqs='example_contexts.csv', model=model, save_filepath='example_generated.csv', 
                     gen_mode='random', temperature=1.0, n_gen_per_context=1, n_sents_per_seq=1, 
-                    eos_tokens=None)
+                    n_context_sents=-1, eos_tokens=None)
 ```
 After generating the sequences, the generate() function will print a sample of the generated sequences for each context.
