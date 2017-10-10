@@ -2,23 +2,23 @@ from __future__ import print_function
 import timeit, numpy, pickle, os, copy
 import theano
 import theano.tensor as T
-#from keras.wrappers.scikit_learn import KerasClassifier, KerasRegressor
 from keras.models import Sequential, Model, load_model
 from keras.layers import *
+from keras.layers.merge import *
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import GRU
+from keras.layers.wrappers import Bidirectional
 from keras.optimizers import RMSprop, SGD, Adagrad, Adam
 from keras.preprocessing.sequence import pad_sequences
 import keras.backend as K
+from scipy.spatial.distance import cosine
 
+rng = numpy.random.RandomState(0)
 theano_rng = T.shared_randomstreams.RandomStreams(123)
 
 
 class SavedModel():
     def save(self):
-        #import pdb;pdb.set_trace()
-        
-        #save model
         if not os.path.isdir(self.filepath):
             os.mkdir(self.filepath)
         
@@ -43,14 +43,14 @@ class SavedModel():
         return attrs
 
     @classmethod
-    def load(cls, filepath):
+    def load(cls, filepath, custom_objects=None):
         with open(filepath + '/classifier.pkl', 'rb') as f:
             classifier = pickle.load(f)
         classifier.model = load_model(filepath + '/classifier.h5')
         print('loaded classifier from', filepath + '/classifier.pkl')
         return classifier
 
-def get_batch(seqs, batch_size=None, padding='pre', max_length=None, n_timesteps=None):
+def get_seq_batch(seqs, batch_size=None, padding='pre', max_length=None, n_timesteps=None):
     if not max_length:
         max_length = max([len(seq) for seq in seqs])
     if n_timesteps:
@@ -63,6 +63,16 @@ def get_batch(seqs, batch_size=None, padding='pre', max_length=None, n_timesteps
         batch_padding = numpy.zeros((batch_size - len(seqs), seqs.shape[1]), dtype='int64')
         seqs = numpy.append(seqs, batch_padding, axis=0)
     return seqs
+
+def get_vector_batch(seqs, vector_length):
+    '''takes sequences of word indices as input and returns word count vectors'''
+    batch = []
+    for seq in seqs:
+        seq = numpy.bincount(numpy.array(seq), minlength=vector_length)
+        batch.append(seq)
+    batch = numpy.array(batch)
+    batch[:,0] = 0
+    return batch
 
 def get_batch_features(features, batch_size=None):
     if batch_size and len(features) < batch_size:
@@ -84,68 +94,125 @@ def batch_seqs_to_list(batch_seqs, len_batch, batch_size):
     batch_seqs = batch_seqs.tolist()
     return batch_seqs
 
-
-class RNNClassifier():
-    def __call__(self, lexicon_size, n_outcomes, input_to_outcome_set=None, 
-                 max_length=None, emb_weights=None, layer1_weights=None):
+class LogisticRegressionClassifier():
+    def __init__(self, n_output_classes, batch_size=100, verbose=True):
+        
+        self.n_output_classes = n_output_classes
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.n_input_nodes = None
+        
+    def create_model(self):
         model = Sequential()
-        model.add(Embedding(output_dim=100, input_dim=lexicon_size + 1,
-                            input_length=max_length, mask_zero=True, name='embedding'))
-        #model.add(GRU(output_dim=200, return_sequences=True, name='recurrent1'))
-        model.add(GRU(output_dim=200, return_sequences=False, name='recurrent2'))
-        model.add(Dense(output_dim=n_outcomes, activation='softmax', name='output'))
-        if emb_weights is not None:
-            #initialize weights with lm weights
-            model.layers[0].set_weights(emb_weights) #set embeddings
-        if layer1_weights is not None:
-            model.layers[1].set_weights(layer1_weights) #set recurrent layer 1         
+        model.add(Dense(output_dim=self.n_output_classes, input_dim=self.n_input_nodes, activation='sigmoid', name='output_layer'))
+        model.add(Activation('softmax'))
         model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         return model
-    def fit(self, X, y, rnn_params, **kwargs):
-        #import pdb;pdb.set_trace()
-        self.sk_params.update(rnn_params)
-        super(RNNClassifier, self).fit(X, y, **kwargs)
-    def predict(self, X, y_choices=None, **kwargs):
-        #import pdb;pdb.set_trace()
-        if "input_to_outcome_set" in self.sk_params and self.sk_params["input_to_outcome_set"] is not None:
-            input_to_outcome_set = self.sk_params["input_to_outcome_set"]
-            #predict from specific outcome set for each input
-            pred_y = []
-            prob_y = self.model.predict(X, **kwargs)
-            for prob_y_, outcome_choices in zip(prob_y, input_to_outcome_set):
-                prob_y_ = prob_y_[outcome_choices]
-                pred_y_ = outcome_choices[numpy.argmax(prob_y_)]
-                pred_y.append(pred_y_)
-            return pred_y
-        else:
-            return super(RNNClassifier, self).predict(X, **kwargs)
 
-def resave_classifier_nosklearn(old_classifier):
-    import pdb;pdb.set_trace()
-    new_classifier = RNNLM()
-    new_classifier.lexicon_size = old_classifier.lexicon_size
-    new_classifier.n_embedding_nodes = old_classifier.n_embedding_nodes
-    new_classifier.n_hidden_nodes = old_classifier.n_hidden_nodes
-    new_classifier.n_hidden_layers = old_classifier.n_hidden_layers
-    new_classifier.batch_size = old_classifier.batch_size
-    new_classifier.max_length = old_classifier.max_length
-    new_classifier.verbose = old_classifier.verbose
-    new_classifier.n_timesteps = old_classifier.n_timesteps
-    new_classifier.filepath = old_classifier.filepath
-    new_classifier.embeddings = old_classifier.embeddings
-    new_classifier.optimizer = old_classifier.optimizer
-    new_classifier.lr = old_classifier.lr
-    new_classifier.clipvalue = old_classifier.clipvalue
-    new_classifier.decay = old_classifier.decay
-    #new_classifier.separate_context = old_classifier.separate_context
-    #new_classifier.max_seq_length = old_classifier.max_sent_length
-    #new_classifier.sample_words = old_classifier.sample_words
-    #new_classifier.model = old_classifier.model
-    #new_classifier.start_time = old_classifier.start_time
-    #ew_classifier.epoch = old_classifier.epoch
-    with open(new_classifier.filepath + '/classifier.pkl', 'wb') as f:
-        pickle.dump(new_classifier, f)
-    #new_classifier.save()
+    def fit(self, seqs, labels, n_input_nodes, n_epochs=1):
+        if not hasattr(self, 'model'):
+            assert(n_input_nodes is not None)
+            self.n_input_nodes = n_input_nodes
+            self.model = self.create_model()
+            if self.verbose:
+                print("Created model", self.__class__.__name__, ":", self.__dict__)
+        if type(seqs) in (list, tuple): #input may already be transformered into matrix, if not, transform
+            seqs = get_vector_batch(seqs, vector_length=self.n_input_nodes)
+        self.model.fit(seqs, labels, batch_size=self.batch_size, nb_epoch=n_epochs, verbose=self.verbose)
+
+    def predict(self, seqs):
+        if type(seqs) in (list, tuple):
+            seqs = get_vector_batch(seqs, self.n_input_nodes)
+        probs = self.model.predict(seqs, batch_size=self.batch_size)
+        return probs
+
+
+
+class MLPClassifier():
+    def __init__(self, n_output_classes, n_hidden_nodes=200, n_hidden_layers=1, batch_size=100, verbose=True):
+        
+        self.n_output_classes = n_output_classes
+        self.n_hidden_nodes = n_hidden_nodes
+        self.n_hidden_layers = n_hidden_layers
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.n_input_nodes = None
+        
+    def create_model(self):
+        model = Sequential()
+        for layer_num in range(self.n_hidden_layers):
+            if layer_num == 0:
+                model.add(Dense(output_dim=self.n_hidden_nodes, input_dim=self.n_input_nodes, activation='tanh', name='hidden_layer' + str(layer_num + 1)))
+            else:
+                model.add(Dense(output_dim=self.n_hidden_nodes, activation='tanh', name='hidden_layer' + str(layer_num + 1)))
+        model.add(Dense(output_dim=self.n_output_classes, activation='softmax', name='output_layer'))      
+        model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+        return model
+
+    def fit(self, seqs, labels, n_input_nodes, n_epochs=1):
+        if not hasattr(self, 'model'):
+            assert(n_input_nodes is not None)
+            self.n_input_nodes = n_input_nodes
+            self.model = self.create_model()
+            if self.verbose:
+                print("Created model", self.__class__.__name__, ":", self.__dict__)
+        if type(seqs) in (list, tuple): #input may already be transformered into matrix, if not, transform
+            seqs = get_vector_batch(seqs, vector_length=self.n_input_nodes) #pad seqs
+        self.model.fit(seqs, labels, batch_size=self.batch_size, nb_epoch=n_epochs, verbose=self.verbose)
+
+    def predict(self, seqs):
+        if type(seqs) in (list, tuple): #input may already be transformered into matrix, if not, transform
+            seqs = get_vector_batch(seqs, self.n_input_nodes) #pad seqs
+        probs = self.model.predict(seqs, batch_size=self.batch_size)
+        return probs
+
+
+class RNNClassifier():
+    def __init__(self,  n_output_classes, n_embedding_nodes=100, n_hidden_nodes=200, n_hidden_layers=1, batch_size=100, verbose=True):#, emb_weights=None, layer1_weights=None):
+        self.n_output_classes = n_output_classes
+        self.n_embedding_nodes = n_embedding_nodes
+        self.n_hidden_nodes = n_hidden_nodes
+        self.n_hidden_layers = n_hidden_layers
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.lexicon_size = None
+        self.n_timesteps = None
+    def create_model(self):
+        model = Sequential()
+        model.add(Embedding(output_dim=self.n_embedding_nodes, input_dim=self.lexicon_size + 1,
+                            input_length=self.n_timesteps, mask_zero=True, name='embedding_layer'))
+        for layer_num in range(self.n_hidden_layers):
+            if layer_num == self.n_hidden_layers - 1:
+                return_sequences = False
+            else: #add extra hidden layers
+                return_sequences = True
+            model.add(GRU(output_dim=self.n_hidden_nodes, return_sequences=return_sequences, name='hidden_layer' + str(layer_num + 1)))
+        model.add(Dense(output_dim=self.n_output_classes, activation='softmax', name='output_layer'))
+        # if emb_weights is not None:
+        #     #initialize weights with lm weights
+        #     model.layers[0].set_weights(emb_weights) #set embeddings
+        # if layer1_weights is not None:
+        #     model.layers[1].set_weights(layer1_weights) #set recurrent layer 1         
+        model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+        return model
+    def fit(self, seqs, labels, lexicon_size, n_timesteps=None, n_epochs=1):
+        #import pdb;pdb.set_trace()
+        if not hasattr(self, 'model'):
+            assert(lexicon_size is not None)
+            self.lexicon_size = lexicon_size
+            self.n_timesteps = n_timesteps
+            if not self.n_timesteps:
+                self.n_timesteps = max([len(seq) for seq in seqs]) #if n_timesteps not given, set it to length of longest sequence
+            self.model = self.create_model()
+            if self.verbose:
+                print("Created model", self.__class__.__name__, ":", self.__dict__)
+        seqs = get_seq_batch(seqs, max_length=self.n_timesteps) #pad seqs
+        self.model.fit(seqs, labels, batch_size=self.batch_size, nb_epoch=n_epochs, verbose=self.verbose)
+    def predict(self, seqs):
+        #import pdb;pdb.set_trace()
+        seqs = get_seq_batch(seqs, max_length=self.n_timesteps) #pad seqs
+        probs = self.model.predict(seqs, batch_size=self.batch_size, verbose=self.verbose)
+        return probs
 
 
 class RNNLM(SavedModel):#KerasClassifier
@@ -254,9 +321,9 @@ class RNNLM(SavedModel):#KerasClassifier
         for batch_index in range(0, len(seqs), self.batch_size):
             batch_inputs = []
             batch_outputs = []
-            batch = get_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps) #prep batch
+            batch = get_seq_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps) #prep batch
             if self.use_pos:
-                batch_pos = get_batch(seqs=pos_seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
+                batch_pos = get_seq_batch(seqs=pos_seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
             if self.use_features:
                 batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
                 batch_inputs.append(batch_features)
@@ -290,7 +357,7 @@ class RNNLM(SavedModel):#KerasClassifier
                                                 (timeit.default_timer() - self.start_time) / 60))
 
     def get_batch_p_next_words(self, words, pos=None, features=None):
-        self.check_pred_model(len(words))
+        #self.check_pred_model(len(words))
         batch_inputs = [words[:, None]]
         if self.use_pos:
             assert(pos is not None)
@@ -320,11 +387,13 @@ class RNNLM(SavedModel):#KerasClassifier
             sample_words = theano.function([P_Next_Words, Temp], Next_Words, updates=Updates)#, allow_input_downcast=True)
             return sample_words
 
-        if prevent_unk: #prevent model from generating unknown words by redistributing probability; assumes index 1 is prob of unknown word
+        if prevent_unk: #prevent model from generating unknown words by redistributing probability; assumes indices 0 and 1 are unknown words (0s are padding, 1 is explicit unknown word)
             #import pdb;pdb.set_trace()
+            p_padding = p_next_words[:,0]
             p_unk = p_next_words[:,1]
-            added_p = (p_unk / p_next_words[:,2:].shape[-1])[:,None]
+            added_p = ((p_padding + p_unk) / p_next_words[:,2:].shape[-1])[:,None]
             p_next_words[:,2:] = p_next_words[:,2:] + added_p
+            p_next_words[:,0] = 0.0
             p_next_words[:,1] = 0.0
 
         if mode == 'random':
@@ -385,9 +454,9 @@ class RNNLM(SavedModel):#KerasClassifier
         for batch_index in range(0, len(seqs), batch_size):
             batch_features = None
             # batch_pos = None
-            batch_seqs = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size) #prep batch
+            batch_seqs = get_seq_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size) #prep batch
             # if self.use_pos:
-            #     batch_pos = get_batch(seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+            #     batch_pos = get_seq_batch(seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
             if self.use_features:
                 batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
 
@@ -434,14 +503,14 @@ class RNNLM(SavedModel):#KerasClassifier
         for batch_index in range(0, len(seqs), batch_size):
             batch_features = None
             batch_pos = None
-            batch_seqs = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size) #prep batch
+            batch_seqs = get_seq_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size) #prep batch
             if self.use_pos:
-                batch_pos = get_batch(seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+                batch_pos = get_seq_batch(seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
             if self.use_features:
                 batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
 
             p_next_words = self.read_batch(seqs=batch_seqs, pos=batch_pos if self.use_pos else None, features=batch_features)
-            #p_next_words = numpy.log(p_next_words)
+            p_next_words = numpy.log(p_next_words)
             len_seqs = [len(seq) for seq in seqs[batch_index:batch_index + batch_size]]
             #remove padding from each sequence and before computing mean
             #p_next_words = numpy.array([numpy.mean(p_next_words_[-len_seq:]) for p_next_words_, len_seq in zip(p_next_words, len_seqs)])
@@ -452,8 +521,6 @@ class RNNLM(SavedModel):#KerasClassifier
 
             if batch_index and batch_index % 1000 == 0:
                 print("computed probabilities for {}/{} sequences...".format(batch_index, len(seqs)))
-
-        #probs = numpy.array(probs)
 
         return probs
 
@@ -471,139 +538,139 @@ class RNNLM(SavedModel):#KerasClassifier
         return embeddings
 
 
-class FeatureRNNLM(RNNLM):
-    def __init__(self, n_feature_nodes=100, **params):
-        self.n_feature_nodes = n_feature_nodes
-        RNNLM.__init__(self, **params)
+# class FeatureRNNLM(RNNLM):
+#     def __init__(self, n_feature_nodes=100, **params):
+#         self.n_feature_nodes = n_feature_nodes
+#         RNNLM.__init__(self, **params)
 
-    def create_model(self, n_timesteps=1, batch_size=1, include_pred_layer=True):
+#     def create_model(self, n_timesteps=1, batch_size=1, include_pred_layer=True):
 
-        seq_input_layer = Input(batch_shape=(batch_size, n_timesteps), name="seq_input_layer")
-        seq_embedding_layer = Embedding(input_dim=self.lexicon_size + 1, 
-                                        output_dim=self.n_embedding_nodes, mask_zero=True, name='seq_embedding_layer')(seq_input_layer)
+#         seq_input_layer = Input(batch_shape=(batch_size, n_timesteps), name="seq_input_layer")
+#         seq_embedding_layer = Embedding(input_dim=self.lexicon_size + 1, 
+#                                         output_dim=self.n_embedding_nodes, mask_zero=True, name='seq_embedding_layer')(seq_input_layer)
 
-        for layer_num in range(self.n_hidden_layers):
-            if layer_num == 0:
-                seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=True, name='seq_hidden_layer1')(seq_embedding_layer)
-            else: #add extra hidden layers
-                seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=True, name='seq_hidden_layer' + str(layer_num + 1))(seq_hidden_layer)
+#         for layer_num in range(self.n_hidden_layers):
+#             if layer_num == 0:
+#                 seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=True, name='seq_hidden_layer1')(seq_embedding_layer)
+#             else: #add extra hidden layers
+#                 seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=True, stateful=True, name='seq_hidden_layer' + str(layer_num + 1))(seq_hidden_layer)
 
-        feature_input_layer = Input(batch_shape=(batch_size, self.lexicon_size + 1), name="feature_input_layer")
-        feature_hidden_layer = Dense(output_dim=self.n_feature_nodes, activation='sigmoid', name='feature_hidden_layer')(feature_input_layer)
+#         feature_input_layer = Input(batch_shape=(batch_size, self.lexicon_size + 1), name="feature_input_layer")
+#         feature_hidden_layer = Dense(output_dim=self.n_feature_nodes, activation='sigmoid', name='feature_hidden_layer')(feature_input_layer)
 
-        #context_hidden_layer = Reshape((1, self.n_hidden_nodes))(context_hidden_layer)
-        feature_hidden_layer = RepeatVector(n_timesteps)(feature_hidden_layer)
+#         #context_hidden_layer = Reshape((1, self.n_hidden_nodes))(context_hidden_layer)
+#         feature_hidden_layer = RepeatVector(n_timesteps)(feature_hidden_layer)
 
-        merge_hidden_layer = merge([seq_hidden_layer, feature_hidden_layer], mode='concat', concat_axis=-1, name='merge_hidden_layer')
+#         merge_hidden_layer = merge([seq_hidden_layer, feature_hidden_layer], mode='concat', concat_axis=-1, name='merge_hidden_layer')
 
-        if include_pred_layer:
-            pred_layer = TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax"))(merge_hidden_layer)
+#         if include_pred_layer:
+#             pred_layer = TimeDistributed(Dense(self.lexicon_size + 1, activation="softmax"))(merge_hidden_layer)
 
-        model = Model(input=[seq_input_layer, feature_input_layer], output=pred_layer)
+#         model = Model(input=[seq_input_layer, feature_input_layer], output=pred_layer)
             
-        #select optimizer and compile
-        model.compile(loss="sparse_categorical_crossentropy", 
-                      optimizer=eval(self.optimizer)(clipvalue=self.clipvalue, lr=self.lr, decay=self.decay))
+#         #select optimizer and compile
+#         model.compile(loss="sparse_categorical_crossentropy", 
+#                       optimizer=eval(self.optimizer)(clipvalue=self.clipvalue, lr=self.lr, decay=self.decay))
                 
-        return model
+#         return model
 
-    def sort_seqs(self, seqs, feature_vecs):
-        #sort by descending length
-        lengths = [len(seq) for seq in seqs]
-        sorted_idxs = numpy.argsort(lengths)#[::-1]
-        seqs = [seqs[idx] for idx in sorted_idxs]
-        feature_vecs = feature_vecs[sorted_idxs]
-        return seqs, feature_vecs
+#     def sort_seqs(self, seqs, feature_vecs):
+#         #sort by descending length
+#         lengths = [len(seq) for seq in seqs]
+#         sorted_idxs = numpy.argsort(lengths)#[::-1]
+#         seqs = [seqs[idx] for idx in sorted_idxs]
+#         feature_vecs = feature_vecs[sorted_idxs]
+#         return seqs, feature_vecs
 
-    def fit(self, seqs, feature_vecs, lexicon_size=None):#, context_size=None):
+#     def fit(self, seqs, feature_vecs, lexicon_size=None):#, context_size=None):
 
-        #import pdb;pdb.set_trace()
+#         #import pdb;pdb.set_trace()
         
-        if not hasattr(self, 'model'):
-            self.lexicon_size = lexicon_size
-            self.model = self.create_model(n_timesteps=self.n_timesteps, batch_size=self.batch_size)
-            self.start_time = timeit.default_timer()
+#         if not hasattr(self, 'model'):
+#             self.lexicon_size = lexicon_size
+#             self.model = self.create_model(n_timesteps=self.n_timesteps, batch_size=self.batch_size)
+#             self.start_time = timeit.default_timer()
 
-        if self.verbose:
-            print("training FeatureRNNLM on {} sequences with batch size = {}".format(len(seqs), self.batch_size))
+#         if self.verbose:
+#             print("training FeatureRNNLM on {} sequences with batch size = {}".format(len(seqs), self.batch_size))
         
-        train_losses = []
+#         train_losses = []
 
-        # assert(type(seqs[0][0]) not in (list, tuple, numpy.ndarray))
-        assert(len(seqs) == len(feature_vecs))
-        #sort seqs by length
-        seqs, feature_vecs = self.sort_seqs(seqs, feature_vecs)
-        for batch_index in range(0, len(seqs), self.batch_size):
-            #prep batch
-            batch = get_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
-            batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
-            for step_index in range(0, batch.shape[-1] - 1, self.n_timesteps):
-                batch_x = batch[:, step_index:step_index + self.n_timesteps]
-                if not numpy.sum(batch_x): #batch is all zeros, skip
-                    continue
-                batch_y = batch[:, step_index + 1:step_index + self.n_timesteps + 1, None]
-                train_loss = self.model.train_on_batch(x=[batch_x, batch_features], y=batch_y)
-            train_losses.append(train_loss)
-            self.model.reset_states()                
-            if batch_index and batch_index % 5000 == 0:
-                print("processed {} sequences, loss: {:.3f} ({:.3f}m)...".format(batch_index, numpy.mean(train_losses),
-                                                                                (timeit.default_timer() - self.start_time) / 60))
+#         # assert(type(seqs[0][0]) not in (list, tuple, numpy.ndarray))
+#         assert(len(seqs) == len(feature_vecs))
+#         #sort seqs by length
+#         seqs, feature_vecs = self.sort_seqs(seqs, feature_vecs)
+#         for batch_index in range(0, len(seqs), self.batch_size):
+#             #prep batch
+#             batch = get_batch(seqs=seqs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
+#             batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
+#             for step_index in range(0, batch.shape[-1] - 1, self.n_timesteps):
+#                 batch_x = batch[:, step_index:step_index + self.n_timesteps]
+#                 if not numpy.sum(batch_x): #batch is all zeros, skip
+#                     continue
+#                 batch_y = batch[:, step_index + 1:step_index + self.n_timesteps + 1, None]
+#                 train_loss = self.model.train_on_batch(x=[batch_x, batch_features], y=batch_y)
+#             train_losses.append(train_loss)
+#             self.model.reset_states()                
+#             if batch_index and batch_index % 5000 == 0:
+#                 print("processed {} sequences, loss: {:.3f} ({:.3f}m)...".format(batch_index, numpy.mean(train_losses),
+#                                                                                 (timeit.default_timer() - self.start_time) / 60))
 
-        if self.filepath:
-            #save model if filepath given
-            self.save()
-        if self.verbose:
-            print("loss: {:.3f} ({:.3f}m)".format(numpy.mean(train_losses),
-                                                (timeit.default_timer() - self.start_time) / 60))
+#         if self.filepath:
+#             #save model if filepath given
+#             self.save()
+#         if self.verbose:
+#             print("loss: {:.3f} ({:.3f}m)".format(numpy.mean(train_losses),
+#                                                 (timeit.default_timer() - self.start_time) / 60))
 
-    def get_batch_p_next_words(self, words, features):
-        p_next_words = self.pred_model.predict_on_batch(x=[words[:, None], features])[:, -1]
-        return p_next_words
+#     def get_batch_p_next_words(self, words, features):
+#         p_next_words = self.pred_model.predict_on_batch(x=[words[:, None], features])[:, -1]
+#         return p_next_words
 
-    def predict(self, seqs, feature_vecs, max_length=35, mode='max', batch_size=1, n_best=1, temp=1.0, prevent_unk=True):
+#     def predict(self, seqs, feature_vecs, max_length=35, mode='max', batch_size=1, n_best=1, temp=1.0, prevent_unk=True):
 
-        #import pdb;pdb.set_trace()
+#         #import pdb;pdb.set_trace()
 
-        if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0][0]:
-            self.pred_model = self.create_model(batch_size=batch_size, n_timesteps=1)
+#         if not hasattr(self, 'pred_model') or batch_size != self.pred_model.input_shape[0][0]:
+#             self.pred_model = self.create_model(batch_size=batch_size, n_timesteps=1)
 
-            #set weights of prediction model
-            if self.verbose:
-                print("created predictor model")
+#             #set weights of prediction model
+#             if self.verbose:
+#                 print("created predictor model")
 
-        self.pred_model.set_weights(self.model.get_weights())
+#         self.pred_model.set_weights(self.model.get_weights())
 
-        pred_seqs = []
+#         pred_seqs = []
 
-        for batch_index in range(0, len(seqs), batch_size):
-            #prep batch
-            batch = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
-            batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
-            #batch_features = numpy.insert(batch_features, 0, numpy.zeros(len(batch_features)), axis=1) #prepend column of zeros for processing first word of sequence (where no context exists)
+#         for batch_index in range(0, len(seqs), batch_size):
+#             #prep batch
+#             batch = get_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+#             batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
+#             #batch_features = numpy.insert(batch_features, 0, numpy.zeros(len(batch_features)), axis=1) #prepend column of zeros for processing first word of sequence (where no context exists)
             
-            batch_pred_seqs = numpy.zeros((batch_size, max_length), dtype='int64')
+#             batch_pred_seqs = numpy.zeros((batch_size, max_length), dtype='int64')
 
-            for idx in range(batch.shape[-1]): #read in given sequence from which to predict
-                p_next_words = self.get_batch_p_next_words(words=batch[:, idx], features=batch_features)
+#             for idx in range(batch.shape[-1]): #read in given sequence from which to predict
+#                 p_next_words = self.get_batch_p_next_words(words=batch[:, idx], features=batch_features)
 
-            for idx in range(max_length): #now predict
-                next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
-                batch_pred_seqs[:, idx] = next_words
-                #batch_features = numpy.concatenate([batch_features, batch_pred_seqs[:, idx:idx+1]], axis=1) #add new words to context vector
-                p_next_words = self.get_batch_p_next_words(words=batch_pred_seqs[:, idx], features=batch_features)
-            self.pred_model.reset_states()
+#             for idx in range(max_length): #now predict
+#                 next_words, p_next_words = self.pred_batch_next_words(p_next_words, mode, n_best, temp, prevent_unk)
+#                 batch_pred_seqs[:, idx] = next_words
+#                 #batch_features = numpy.concatenate([batch_features, batch_pred_seqs[:, idx:idx+1]], axis=1) #add new words to context vector
+#                 p_next_words = self.get_batch_p_next_words(words=batch_pred_seqs[:, idx], features=batch_features)
+#             self.pred_model.reset_states()
 
-            if len(seqs[batch_index:batch_index + batch_size]) < batch_size:
-                #remove padding if batch was padded
-                batch_pred_seqs = batch_pred_seqs[:len(seqs[batch_index:batch_index + batch_size])]
-            batch_pred_seqs = batch_pred_seqs.tolist()
+#             if len(seqs[batch_index:batch_index + batch_size]) < batch_size:
+#                 #remove padding if batch was padded
+#                 batch_pred_seqs = batch_pred_seqs[:len(seqs[batch_index:batch_index + batch_size])]
+#             batch_pred_seqs = batch_pred_seqs.tolist()
 
-            pred_seqs.extend(batch_pred_seqs)
+#             pred_seqs.extend(batch_pred_seqs)
 
-            if batch_index and batch_index % 1000 == 0:
-                print("generated new sequences for {}/{} inputs...".format(batch_index, len(seqs)))
+#             if batch_index and batch_index % 1000 == 0:
+#                 print("generated new sequences for {}/{} inputs...".format(batch_index, len(seqs)))
 
-        return pred_seqs
+#         return pred_seqs
 
 
 class SeqBinaryClassifier(SavedModel):#, KerasClassifier):
@@ -705,63 +772,269 @@ class SeqBinaryClassifier(SavedModel):#, KerasClassifier):
         prob = self.model.predict([input_seq[None], output_seq[None]])[0]
         return prob
 
-class RNNBinaryClassifier(SavedModel):#, KerasClassifier):
-    def __init__(self, n_timesteps, lexicon_size=None, n_embedding_nodes=300, batch_size=100, 
-                 n_hidden_layers=1, n_hidden_nodes=500, verbose=1, optimizer='Adam', clipvalue=numpy.inf,
+class MLPBinaryClassifier(SavedModel):
+    def __init__(self, n_embedding_nodes=300, batch_size=100, 
+                 n_hidden_layers=1, n_hidden_nodes=500, verbose=1, optimizer='Adam',
                  filepath=None, use_dropout=False):
         
         self.batch_size = batch_size
-        self.lexicon_size = lexicon_size
         self.n_hidden_layers = n_hidden_layers
         self.n_hidden_nodes = n_hidden_nodes
         self.n_embedding_nodes = n_embedding_nodes
-        self.n_timesteps = n_timesteps
         self.verbose = verbose
         self.use_dropout = use_dropout
-        self.clipvalue = clipvalue
         self.optimizer = optimizer
         self.filepath = filepath
+        self.lexicon_size = None
+        self.embedded_input = None
 
     def create_model(self):
 
-        emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')
+        # if self.embedded_input:
+        #     seq1_layer = Input(shape=(self.n_timesteps, self.n_embedding_nodes), name="seq1_layer")
+        #     seq2_layer = Input(shape=(self.n_timesteps, self.n_embedding_nodes), name="seq2_layer")
+        #     mask_layer = Masking(mask_value=0.0, name='mask_layer')
+        #     seq1_mask_layer = mask_layer(seq1_layer)
+        #     seq2_mask_layer = mask_layer(seq2_layer)
+        #     prev_seq1_layer = seq1_mask_layer
+        #     prev_seq2_layer = seq2_mask_layer
+        # else:
+        #emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')
+        seq1_layer = Input(shape=(self.lexicon_size + 1,), name="seq1_layer")
+        #seq1_emb_layer = emb_layer(seq1_layer)
+        seq2_layer = Input(shape=(self.lexicon_size + 1,), name="seq2_layer")
+        #seq2_emb_layer = emb_layer(seq2_layer)
+        prev_seq1_layer = seq1_layer
+        prev_seq2_layer = seq2_layer
 
-        cause_layer = Input(shape=(self.n_timesteps,), name="cause_layer")
-        cause_emb_layer = emb_layer(cause_layer)
-        effect_layer = Input(shape=(self.n_timesteps,), name="effect_layer")
-        effect_emb_layer = emb_layer(effect_layer)
+        for layer_idx in range(self.n_hidden_layers):
+            # if layer_idx == self.n_hidden_layers - 1:
+            #     return_sequences = False
+            seq1_hidden_layer = Dense(output_dim=self.n_hidden_nodes, name='seq1_hidden_layer', activation='tanh')(prev_seq1_layer)
+            seq2_hidden_layer = Dense(output_dim=self.n_hidden_nodes, name='seq2_hidden_layer', activation='tanh')(prev_seq2_layer)
 
-        cause_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, 
-                                 stateful=False, name='cause_hidden_layer')(cause_emb_layer)
-        effect_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, 
-                                 stateful=False, name='effect_hidden_layer')(effect_emb_layer)
-
-        merge_layer = merge([cause_hidden_layer, effect_hidden_layer], mode='dot', concat_axis=-1, name='merge_layer')
-        #flatten_layer = Flatten(name='flatten_layer')(merge_layer)
-        sigmoid_layer = Activation('sigmoid')(merge_layer)
-        model = Model(input=[cause_layer, effect_layer], output=sigmoid_layer)
-        model.compile(loss='binary_crossentropy', optimizer='adam')
-
+        merge_layer = merge([seq1_hidden_layer, seq2_hidden_layer], mode='concat', concat_axis=-1, name='merge_layer')
+        dense_layer = Dense(output_dim=self.n_hidden_nodes, name='dense_layer', activation='tanh')(merge_layer)
+        pred_layer = Dense(output_dim=1, name='pred_layer', activation='sigmoid')(dense_layer)
+        model = Model(input=[seq1_layer, seq2_layer], output=pred_layer)
+        model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
         return model
+
+    # def get_batch(self, seqs):
+    #     '''takes sequences of word indices as input and returns word count vectors'''
+    #     batch = []
+    #     for seq in seqs:
+    #         seq = numpy.bincount(numpy.array(seq), minlength=self.lexicon_size + 1)
+    #         batch.append(seq)
+    #     batch = numpy.array(batch)
+    #     batch[:,0] = 0
+    #     return batch
     
-    def fit(self, input_seqs, output_seqs, labels, lexicon_size=None):
+    def fit(self, seqs1, seqs2, labels, lexicon_size=None, embedded_input=False, n_epochs=1):
 
         if not hasattr(self, 'model'):
+            # self.embedded_input = embedded_input
+            # if not self.embedded_input:
             assert(lexicon_size is not None)
             self.lexicon_size = lexicon_size
             self.model = self.create_model()
             print("Created model", self.__class__.__name__, ":", self.__dict__)
-    
-        self.model.fit([input_seqs, output_seqs], labels, nb_epoch=1, batch_size=self.batch_size)
+
+        assert(len(seqs1) == len(seqs2))
+
+        #self.model.fit(x=[seqs1, seqs2], y=labels, batch_size=self.batch_size, nb_epoch=n_epochs)
+
+        # shuffle instances
+        random_idxs = rng.permutation(len(seqs1))
+        seqs1 = [seqs1[idx] for idx in random_idxs]
+        seqs2 = [seqs2[idx] for idx in random_idxs]
+        labels = labels[random_idxs]
+
+        for epoch in range(n_epochs):
+            losses = []
+            print("EPOCH:", epoch + 1)
+            for batch_idx in range(0, len(seqs1), self.batch_size):
+                batch_seqs1 = get_vector_batch(seqs1[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size + 1)
+                batch_seqs2 = get_vector_batch(seqs2[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size + 1)
+                batch_labels = labels[batch_idx:batch_idx+self.batch_size]
+                losses.append(self.model.train_on_batch([batch_seqs1, batch_seqs2], batch_labels))
+                if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
+                    print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(numpy.array(losses)[:,0]), numpy.mean(numpy.array(losses)[:,1])))
+            print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(numpy.array(losses)[:,0]), numpy.mean(numpy.array(losses)[:,1])))
 
         if self.filepath:
             self.save()
 
-    def predict(self, input_seq, output_seq):
+    def predict(self, seq1, seq2):
         '''return score for likelihood of output seq given input seq'''
 
-        prob = self.model.predict([input_seq[None], output_seq[None]])[0]
+        prob = self.model.predict([seq1, seq2])[0][0]
         return prob
+
+class RNNBinaryClassifier(SavedModel):
+    def __init__(self, n_embedding_nodes=300, batch_size=100, 
+                 n_hidden_layers=1, n_hidden_nodes=500, verbose=1, optimizer='Adam',
+                 filepath=None, use_dropout=False):
+        
+        self.batch_size = batch_size
+        self.n_hidden_layers = n_hidden_layers
+        self.n_hidden_nodes = n_hidden_nodes
+        self.n_embedding_nodes = n_embedding_nodes
+        self.verbose = verbose
+        self.use_dropout = use_dropout
+        self.optimizer = optimizer
+        self.filepath = filepath
+        self.n_timesteps = None
+        self.lexicon_size = None
+        self.embedded_input = None
+
+    def create_model(self, ranking=True, use_dropout=False):
+        if self.embedded_input:
+            seq1_layer = Input(shape=(self.n_timesteps, self.n_embedding_nodes), name="seq1_layer")
+            pos_seq2_layer = Input(shape=(self.n_timesteps, self.n_embedding_nodes), name="pos_seq2_layer")
+            neg_seq2_layer = Input(shape=(self.n_timesteps, self.n_embedding_nodes), name="neg_seq2_layer")
+            mask_layer = Masking(mask_value=0.0, name='mask_layer')
+            seq1_emb_layer = mask_layer(seq1_layer)
+            pos_seq2_emb_layer = mask_layer(pos_seq2_layer)
+            neg_seq2_emb_layer = mask_layer(neg_seq2_layer)
+        else:
+            emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')
+
+            seq1_layer = Input(shape=(self.n_timesteps,), name="seq1_layer")
+            seq1_emb_layer = emb_layer(seq1_layer)
+
+            pos_seq2_layer = Input(shape=(self.n_timesteps,), name="pos_seq2_layer")
+            pos_seq2_emb_layer = emb_layer(pos_seq2_layer)
+
+            neg_seq2_layer = Input(shape=(self.n_timesteps,), name="neg_seq2_layer")
+            neg_seq2_emb_layer = emb_layer(neg_seq2_layer)
+
+        for layer_idx in range(self.n_hidden_layers):
+            if layer_idx == self.n_hidden_layers - 1:
+                return_sequences = False
+
+            seq1_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=return_sequences,
+                                    stateful=False, name='seq1_hidden_layer' + str(layer_idx + 1))
+
+            seq2_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=return_sequences,
+                                    stateful=False, name='seq2_hidden_layer' + str(layer_idx + 1))
+
+            if layer_idx == 0:
+                seq1_hidden_layer = seq1_hidden_layer(seq1_emb_layer)
+                pos_seq2_hidden_layer = seq2_hidden_layer(pos_seq2_emb_layer)
+                neg_seq2_hidden_layer = seq2_hidden_layer(neg_seq2_emb_layer)
+            else:
+                seq1_hidden_layer = seq1_hidden_layer(seq1_hidden_layer)
+                pos_seq2_hidden_layer = seq2_hidden_layer(pos_seq2_hidden_layer)
+                neg_seq2_hidden_layer = seq2_hidden_layer(neg_seq2_hidden_layer)
+
+        merge_pos_layer = merge([seq1_hidden_layer, pos_seq2_hidden_layer], mode='dot', concat_axis=-1, name='merge_pos_layer')
+        merge_neg_layer = merge([seq1_hidden_layer, neg_seq2_hidden_layer], mode='dot', concat_axis=-1, name='merge_neg_layer')
+
+        if use_dropout:
+            dropout = Dropout(0.25, name='dropout')
+            merge_pos_layer = dropout(merge_pos_layer)
+            merge_neg_layer = dropout(merge_neg_layer)
+
+
+        pred_layer = Activation('sigmoid')
+        #pred_pos_layer = pred_layer(dense_pos_layer)
+        pred_pos_layer = pred_layer(merge_pos_layer)
+
+        if ranking:
+            # if ranking=True, model will be trained to assign higher scores to positive examples
+            #pred_neg_layer = pred_layer(dense_neg_layer)
+            pred_neg_layer = pred_layer(merge_neg_layer)
+            merge_pred_layer = merge([pred_pos_layer, pred_neg_layer], mode='concat', concat_axis=-1, name='merge_pred_layer')
+
+            model = Model(input=[seq1_layer, pos_seq2_layer, neg_seq2_layer], output=merge_pred_layer)
+        else:
+            # otherwise, model will just output a score for this example, so only the postive example layer is used (this model is used for prediction)
+            model = Model(input=[seq1_layer, pos_seq2_layer], output=pred_pos_layer)
+
+        model.compile(loss=self.ranking_loss, optimizer='adam', metrics=['accuracy'])
+        return model
+
+    def ranking_loss(self, y_true, y_pred):
+        #import pdb;pdb.set_trace()
+        pos_pred = y_pred[:,0]
+        neg_pred = y_pred[:,1]
+        loss = 1 - K.sigmoid(pos_pred - neg_pred) #K.maximum(1.0 + neg_pred - pos_pred, 0.0)
+        return K.mean(loss)# + 0 * y_true
+
+    def accuracy(self, y_true, y_pred):
+        pos_pred = y_pred[:,0]
+        neg_pred = y_pred[:,1]
+        accuracy = K.mean(K.greater(pos_pred, neg_pred))
+        return accuracy
+
+    def get_batch(self, seqs):
+        if self.embedded_input:
+            batch_seqs = numpy.zeros((len(seqs), self.n_timesteps, self.n_embedding_nodes))
+            for seq_idx, seq in enumerate(seqs):
+                for word_idx, word in enumerate(seq):
+                    batch_seqs[seq_idx, word_idx] = word
+        else:
+            batch_seqs = pad_sequences(sequences=seqs, maxlen=self.n_timesteps)
+        return batch_seqs
+    
+    def fit(self, input_seqs, pos_output_seqs, neg_output_seqs, n_timesteps=None, lexicon_size=None, embedded_input=False, n_epochs=1):
+
+        if not hasattr(self, 'model'):
+            assert(n_timesteps is not None)
+            self.n_timesteps = n_timesteps
+            self.embedded_input = embedded_input
+            if not self.embedded_input:
+                assert(lexicon_size is not None)
+                self.lexicon_size = lexicon_size
+            self.model = self.create_model(use_dropout=self.use_dropout)
+            print("Created model", self.__class__.__name__, ":", self.__dict__)
+
+        assert(len(input_seqs) == len(pos_output_seqs) == len(neg_output_seqs))
+
+        # shuffle instances
+        random_idxs = rng.permutation(len(input_seqs))
+        input_seqs = [input_seqs[idx] for idx in random_idxs]
+        pos_output_seqs = [pos_output_seqs[idx] for idx in random_idxs]
+        neg_output_seqs = [neg_output_seqs[idx] for idx in random_idxs]
+
+        for epoch in range(n_epochs):
+            losses = []
+            if n_epochs > 1:
+                print("EPOCH:", epoch + 1)
+            for batch_idx in range(0, len(input_seqs), self.batch_size):
+                batch_input_seqs = self.get_batch(input_seqs[batch_idx:batch_idx+self.batch_size])
+                batch_pos_output_seqs = self.get_batch(pos_output_seqs[batch_idx:batch_idx+self.batch_size])
+                batch_neg_output_seqs = self.get_batch(neg_output_seqs[batch_idx:batch_idx+self.batch_size])
+                losses.append(self.model.train_on_batch(x=[batch_input_seqs, batch_pos_output_seqs, batch_neg_output_seqs], y=numpy.ones((len(batch_input_seqs), 2))))
+                if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
+                    #print("loss: {:.3f}".format(numpy.mean(numpy.array(losses))))
+                    print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(numpy.array(losses)[:,0]), numpy.mean(numpy.array(losses)[:,1])))
+            print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(numpy.array(losses)[:,0]), numpy.mean(numpy.array(losses)[:,1])))
+            #print("loss: {:.3f}".format(numpy.mean(numpy.array(losses))))
+
+        # if self.filepath:
+        #     self.save()
+
+    def predict(self, seq1, seq2):
+        '''return score for likelihood of seq1 given seq2'''
+        if not hasattr(self, 'pred_model'):
+            self.pred_model = self.create_model(ranking=False, use_dropout=False)
+            if self.verbose:
+                print("created predictor model")
+        
+        self.pred_model.set_weights(self.model.get_weights())
+
+        prob = self.pred_model.predict(x=[seq1[None], seq2[None]])[0][0]
+        return prob
+
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath + '/classifier.pkl', 'rb') as f:
+            classifier = pickle.load(f)
+        classifier.model = load_model(filepath + '/classifier.h5', custom_objects={'ranking_loss':classifier.ranking_loss})
+        print('loaded classifier from', filepath + '/classifier.pkl')
+        return classifier
 
 
 class Autoencoder():
@@ -950,323 +1223,186 @@ class MLPLM(SavedModel):
         #probs = numpy.array(probs)
         return probs
 
-
-
-# class MLPClassifier(KerasClassifier):
-#     def __call__(self, lexicon_size, n_outcomes, input_to_outcome_set=None):
-        
-#         self.n_outcomes = n_outcomes
-#         self.lexicon_size = lexicon_size
-        
-#         model = Sequential()
-#         model.add(Dense(output_dim=200, input_dim=self.lexicon_size, activation='tanh', name='hidden1'))
-#         #model.add(Dense(output_dim=200, input_dim=lexicon_size, activation='tanh', name='hidden2'))
-#         model.add(Dense(output_dim=n_outcomes, activation='softmax', name='output'))
-#         model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=["accuracy"])
-#         return model
-#     def fit(self, X, y, **kwargs):
-#         #get number of input nodes
-#         self.sk_params.update(lexicon_size = X.shape[1])
-#         #keras doesn't handle sparse matrices
-#         X = X.toarray()
-#         super(MLPClassifier, self).fit(X, y, **kwargs)
-#     def predict(self, X, **kwargs):
-#         #keras doesn't handle sparse matrices  
-#         X = X.toarray()
     
-#         if "input_to_outcome_set" in self.sk_params and self.sk_params["input_to_outcome_set"] is not None:
-#             #import pdb; pdb.set_trace()
-#             input_to_outcome_set = self.sk_params["input_to_outcome_set"]
-#             #predict from specific outcome set for each input
-#             pred_y = []
-#             prob_y = self.model.predict(X, **kwargs)
-#             for prob_y_, outcome_choices in zip(prob_y, input_to_outcome_set):
-#                 prob_y_ = prob_y_[outcome_choices]
-#                 pred_y_ = outcome_choices[numpy.argmax(prob_y_)]
-#                 pred_y.append(pred_y_)
-#             return pred_y
-
-#         else:
-#             return super(MLPClassifier, self).predict(X, **kwargs)
-    
-# class Seq2SeqClassifier(KerasClassifier):
-#     def __call__(self, lexicon_size, max_length, batch_size=None, stateful=False,
-#                  n_encoding_layers=1, n_decoding_layers=1, 
-#                  n_embedding_nodes=100, n_hidden_nodes=250, verbose=1, embedded_input=False):
+class Seq2Seq(SavedModel):
+    def __init__(self, batch_size=100, n_encoding_layers=1, n_decoding_layers=1, 
+                 n_embedding_nodes=300, n_hidden_nodes=500, use_attention=False, 
+                 flat_input=False, n_flat_input_nodes=4800, use_dropout=False, filepath=None, verbose=True):
         
-#         self.stateful = stateful
-#         self.embedded_input = embedded_input
-#         self.batch_size = batch_size
-#         self.max_length = max_length
-#         self.lexicon_size = lexicon_size
-#         self.n_embedding_nodes = n_embedding_nodes
-#         self.n_encoding_layers = n_encoding_layers
-#         self.n_decoding_layers = n_decoding_layers
-#         self.n_hidden_nodes = n_hidden_nodes
-#         self.verbose = verbose
-        
-#         #import pdb;pdb.set_trace()
-#         model = Sequential()
-        
-#         if not self.embedded_input:
-#             embedding = Embedding(batch_input_shape=(self.batch_size, self.max_length), 
-#                                   input_dim=self.lexicon_size + 1,
-#                                   output_dim=self.n_embedding_nodes, 
-#                                   mask_zero=True, name='embedding')
-#             model.add(embedding)
+        self.batch_size = batch_size
+        self.n_embedding_nodes = n_embedding_nodes
+        self.n_encoding_layers = n_encoding_layers
+        self.n_decoding_layers = n_decoding_layers
+        self.n_hidden_nodes = n_hidden_nodes
+        #self.embedded_input = embedded_input
+        self.filepath = filepath
+        self.use_attention = use_attention
+        self.use_dropout = use_dropout
+        self.flat_input = flat_input
+        self.n_flat_input_nodes = n_flat_input_nodes
+        self.verbose = verbose
+        self.n_timesteps = None
+        self.lexicon_size = None
 
-#         encoded_input = GRU(batch_input_shape=(self.batch_size, self.max_length, self.n_embedding_nodes),
-#                             input_length = self.max_length,
-#                             input_dim = self.n_embedding_nodes,
-#                             output_dim=self.n_hidden_nodes, return_sequences=False, 
-#                             name='encoded_input1', stateful=self.stateful)
-#         model.add(encoded_input)
-
-#         repeat_layer = RepeatVector(self.max_length, name="repeat_layer")
-#         model.add(repeat_layer)
+    def create_model(self):
         
-#         encoded_outcome = GRU(self.n_hidden_nodes, return_sequences=True, name='encoded_outcome1',
-#                               stateful=self.stateful)#(repeat_layer)
-#         model.add(encoded_outcome)
+        if self.flat_input: #input is flat vector rather than sequence
+            input_seq_layer = Input(shape=(self.n_flat_input_nodes,), name="input_seq_layer")
+            repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(input_seq_layer)
+        else:
+            input_seq_layer = Input(shape=(self.n_timesteps,), name="input_seq_layer")
 
-#         outcome_seq = TimeDistributed(Dense(output_dim=self.lexicon_size + 1, activation='softmax', 
-#                             name='outcome_seq'))#(encoded_outcome)
-#         model.add(outcome_seq)
+            # if self.use_attention:
+            #     #import pdb;pdb.set_trace()
+            #     emb_seq_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='emb_layer')(input_seq_layer) #mask_zero=True,
+            #     encoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='encoded_seq_layer')(emb_seq_layer)
 
-#         optimizer = "rmsprop"
-#         model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
-        
-#         if self.verbose:
-#             print "CREATED Sequence2Sequence model: embedding layer sizes:", self.n_embedding_nodes, ",",\
-#             self.n_encoding_layers, "encoding layers with size:", self.n_hidden_nodes, ",",\
-#             self.n_decoding_layers, "decoding layers with size:", self.n_hidden_nodes, ",",\
-#             "optimizer:", optimizer, ", batch_size:", self.batch_size, ", stateful =", self.stateful
-#         return model
-    
-#     def fit(self, X, y, rnn_params=None, **kwargs):
-#         #import pdb;pdb.set_trace()
-#         #y are sequences rather than classes here
-#         self.sk_params.update(rnn_params)
-#         if "embedded_input" in self.sk_params and self.sk_params["embedded_input"]:
-#             max_length = X.shape[-2]
-#         else:
-#             max_length = X.shape[-1]
-#         self.sk_params.update({"max_length": max_length})
-#         #import pdb;pdb.set_trace()
-#         patience = 2
-#         n_lossless_iters = 0
-#         if "stateful" in self.sk_params and self.sk_params["stateful"]:
-#             #import pdb;pdb.set_trace()
-#             #carry over state between batches
-#             assert(len(X.shape) >= 3)
-#             self.model = self.__call__(**self.filter_sk_params(self.__call__))
-#             nb_epoch = self.sk_params["nb_epoch"]
-#             n_batches = int(numpy.ceil(len(X) * 1. / self.batch_size))
-#             #import pdb;pdb.set_trace()
-#             if self.verbose:
-#                 print "training stateful Seq2Seq on", len(X), "sequences for", nb_epoch, "epochs..."
-#                 print n_batches, "batches with", self.batch_size, "sequences per batch"
-#             start_time = timeit.default_timer()
-#             min_loss = numpy.inf
-#             for epoch in range(nb_epoch):
-#                 train_losses = []
-#                 for batch_index in range(0, len(X), self.batch_size):
-#                     batch_num = batch_index / self.batch_size + 1
-#                     for sent_index in range(X.shape[1]):
-#                         batch_X = X[batch_index:batch_index + self.batch_size, sent_index]
-#                         batch_y = y[batch_index:batch_index + self.batch_size, sent_index]
-#                         assert(len(batch_X) == len(batch_y))
-#                         if len(batch_X) < self.batch_size:
-#                             #too few sequences for batch, so add extra rows
-#                             batch_X = numpy.append(batch_X, numpy.zeros((self.batch_size - len(batch_X),) 
-#                                                                     + batch_X.shape[1:]), axis=0)
-#                             batch_y = numpy.append(batch_y, numpy.zeros((self.batch_size - len(batch_y),
-#                                                                      batch_y.shape[-1])), axis=0)
-#                         train_loss = self.model.train_on_batch(x=batch_X, y=batch_y[:, :, None])
-#                         train_losses.append(train_loss)
-#                     if batch_num % 100 == 0:
-#                         print "completed", batch_num, "/", n_batches, "batches in epoch", epoch + 1, "..."
-                            
-#                     self.model.reset_states()
+            #     permute1_attention_probs_layer = Permute((2, 1), name='permute1_attention_probs_layer')(encoded_seq_layer)
+            #     dense_attention_probs_layer = Dense(self.n_timesteps, activation='softmax', 
+            #                                         name='dense_attention_probs_layer')(permute1_attention_probs_layer)
+            #     # # if SINGLE_ATTENTION_VECTOR:
+            #     mean_attention_probs_layer = Lambda(lambda layer: K.mean(layer, axis=1), output_shape=(self.n_timesteps,), 
+            #                                         name='mean_attention_probs_layer')(dense_attention_probs_layer)
+            #     repeat_attention_probs_layer = RepeatVector(self.n_hidden_nodes, name='repeat_attention_probs_layer')(mean_attention_probs_layer)
+            #     permute2_attention_probs_layer = Permute((2, 1), name='permute2_attention_probs_layer')(repeat_attention_probs_layer)
+            #     encoded_seq_end_layer = Lambda(lambda layer: layer[:,-1], output_shape=(self.n_hidden_nodes,), name='attention_seq_end_layer')(encoded_seq_layer)
+            #     encoded_seq_repeat_layer = RepeatVector(self.n_timesteps, name='repeat_seq_layer')(encoded_seq_end_layer)
+            #     repeat_layer = merge([encoded_seq_repeat_layer, permute2_attention_probs_layer], mode='mul', name='attention_repeat_seq_layer')
+            #     #decoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='decoded_seq_layer')(repeat_layer)
                 
-#                 if self.verbose:
-#                     print("epoch {}/{} loss: {:.3f} ({:.3f}m)".format(epoch + 1, nb_epoch, 
-#                                                                       numpy.mean(train_losses),
-#                                                                       (timeit.default_timer() - start_time) / 60))
-#                 if numpy.mean(train_losses) < min_loss:
-#                     n_lossless_iters = 0  
-#                     min_loss = numpy.mean(train_losses)
-#                 else:
-#                     n_lossless_iters += 1
-#                     if n_lossless_iters == patience:
-#                         #loss hasn't decreased after waiting number of patience iterations, so stop
-#                         print "stopping early"
-#                         break
-                     
-#         else:
-#             #import pdb;pdb.set_trace()
-#             #assert(len(X.shape) == 2)
-#             #regular fit function works for non-stateful models
-#             early_stop = EarlyStopping(monitor='train_loss', patience=patience, verbose=0, mode='auto')
-#             super(Seq2SeqClassifier, self).fit(X, y=y[:, :, None], callbacks=[early_stop], **kwargs)
+            # else:
+            emb_seq_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')(input_seq_layer) #mask_zero=True,
+            encoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=False, name='encoded_seq_layer')(emb_seq_layer)
+            repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(encoded_seq_layer)
         
-#     def predict(self, X, y_choices, **kwargs):
-#         #check if y_choices is single set or if there are different choices for each input
-#         y_choices = check_y_choices(X, y_choices)
-        
-#         if self.verbose:
-#             print "predicting outputs for", len(X), "sequences..."
-            
-#         if self.stateful:
-#             #iterate through sentences as input-output
-#             #import pdb;pdb.set_trace()
-#             probs_y = []
-#             for batch_index in range(0, len(X), self.batch_size):
-#                 for sent_index in range(X.shape[1]):
-#                     batch_X = X[batch_index:batch_index + self.batch_size, sent_index]
-#                     if len(batch_X) < self.batch_size:
-#                         #too few sequences for batch, so add extra rows
-#                         #import pdb;pdb.set_trace()
-#                         batch_X = numpy.append(batch_X, numpy.zeros((self.batch_size - len(batch_X),) 
-#                                                                     + batch_X.shape[1:]), axis=0)
-#                         assert(len(batch_X) == self.batch_size)
-#                     probs_next_sent = self.model.predict_on_batch(batch_X)
-#                 #then reduce batch again if it has empty rows 
-#                 if len(X) - batch_index < self.batch_size:
-#                     #import pdb;pdb.set_trace()
-#                     batch_X = batch_X[:len(X) - batch_index]
-#                 batch_choices = y_choices[batch_index:batch_index + self.batch_size]
-#                 assert(len(batch_X) == len(batch_choices))
-#                 batch_probs_y = []
-#                 for choice_index in range(batch_choices.shape[1]):
-#                     #import pdb;pdb.set_trace()
-#                     #evaluate each choice based on predicted probabilites from most recent sentence
-#                     batch_choice = batch_choices[:, choice_index]
-#                     probs_choice = probs_next_sent[numpy.arange(len(batch_choice))[:, None],
-#                                             numpy.arange(batch_choice.shape[-1]), batch_choice]
-#                     #have to iterate through instances because each is different length
-#                     probs_choice = [prob_choice[choice > 0][-1] for choice, prob_choice in 
-#                                                                      zip(batch_choice, probs_choice)]
-#                     batch_probs_y.append(probs_choice)
-#                 batch_probs_y = numpy.stack(batch_probs_y, axis=1)
-#                 probs_y.append(batch_probs_y)                
-#                 self.model.reset_states()
-#             probs_y = numpy.concatenate(probs_y)
-#             #import pdb;pdb.set_trace()
-        
-#         else:
-#             probs_y = []
-#             #import pdb;pdb.set_trace()
-#             for x, choices in zip(X, y_choices):       
-#                 probs = []
-#                 for choice in choices:
-#                     prob = self.model.predict(x[None, :], **kwargs)
-#                     prob = prob[:, numpy.arange(len(choice)), choice]
-#                     prob = prob[0, choice > 0][-1]
-#                     #prob = numpy.sum(numpy.log(prob))
-#                     #prob = numpy.sum(numpy.log(prob))
-#                     probs.append(prob)
-#                 probs_y.append(numpy.array(probs))
-#             probs_y = numpy.array(probs_y)
-        
-#         assert(len(probs_y) == len(X))
-#         #return prob for each choice for each input
-#         return probs_y
-        
-        
-# class MergeSeqClassifier(KerasClassifier):
-#     def __call__(self, lexicon_size, outcome_set, max_length, n_encoding_layers=1, n_decoding_layers=1, 
-#                  n_embedding_nodes=100, n_hidden_nodes=200, batch_size=1, verbose=1):
-        
-#         self.lexicon_size = lexicon_size
-#         self.max_length = max_length
-#         self.outcome_set = outcome_set
-#         self.n_embedding_nodes = n_embedding_nodes
-#         self.n_encoding_layers = n_encoding_layers
-#         self.n_decoding_layers = n_decoding_layers
-#         self.n_hidden_nodes = n_hidden_nodes
-#         self.batch_size = batch_size
-#         self.verbose = verbose
+        decoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='decoded_seq_layer')(repeat_layer)
 
-#         #create model
-#         user_input = Input(shape=(self.max_length,), dtype='int32', name="user_input")
-#         embedding = Embedding(input_length=self.max_length,
-#                               input_dim=self.lexicon_size + 1, 
-#                               output_dim=self.n_embedding_nodes, mask_zero=True, name='input_embedding')
-#         embedded_input = embedding(user_input)
-#         encoded_input = GRU(self.n_hidden_nodes, return_sequences=False, name='encoded_input1')(embedded_input)
+        output_seq_layer = TimeDistributed(Dense(output_dim=self.lexicon_size + 1, activation='softmax', name='outcome_seq_layer'))(decoded_seq_layer)
+
+        model = Model(input=input_seq_layer, output=output_seq_layer)
+
+        model.compile(loss="sparse_categorical_crossentropy", optimizer='adam')
+
+        return model
+    
+    def fit(self, seqs1, seqs2, n_timesteps=None, lexicon_size=None, n_epochs=1, save_to_filepath=False):
+        #import pdb;pdb.set_trace()
+
+        if not hasattr(self, 'model'):
+            self.n_timesteps = n_timesteps
+            if not self.n_timesteps:
+                if self.flat_input:
+                    self.n_timesteps = max([len(seq) for seq in seqs2])
+                else:
+                    self.n_timesteps = max([len(seq) for seq in seqs1 + seqs2]) #if n_timesteps not given, set it to length of longest sequence
+            # self.embedded_input = embedded_input
+            # if not self.embedded_input and not self.flat_input:
+            assert(lexicon_size is not None)
+            self.lexicon_size = lexicon_size
+            self.model = self.create_model()
+            if self.verbose:
+                print("Created model", self.__class__.__name__, ":", self.__dict__)
+
+        assert(len(seqs1) == len(seqs2))
+
+        for epoch in range(n_epochs):
+            losses = []
+            if n_epochs > 1:
+                if self.verbose:
+                    print("EPOCH:", epoch + 1)
+            for batch_idx in range(0, len(seqs1), self.batch_size):
+                if self.flat_input:
+                    batch_seqs1 = numpy.array(seqs1[batch_idx:batch_idx+self.batch_size])
+                else:
+                    batch_seqs1 = get_seq_batch(seqs1[batch_idx:batch_idx+self.batch_size], max_length=self.n_timesteps)
+                batch_seqs2 = get_seq_batch(seqs2[batch_idx:batch_idx+self.batch_size], padding='post', max_length=self.n_timesteps)
+                losses.append(self.model.train_on_batch(x=batch_seqs1, y=batch_seqs2[:,:,None]))
+                if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
+                    if self.verbose:
+                        print("loss: {:.3f}".format(numpy.mean(numpy.array(losses))))
+            if self.verbose:
+                print("loss: {:.3f}".format(numpy.mean(numpy.array(losses))))
+            if save_to_filepath and self.filepath:
+                self.save()
         
-#         outcome_seq = Input(shape=(self.max_length,), dtype='int32', name="outcome_seq")
-#         embedded_outcome = embedding(outcome_seq)
-#         encoded_outcome = GRU(self.n_hidden_nodes, return_sequences=False, name='encoded_outcome1')(embedded_outcome)
-#         input_outcome_seq = merge([encoded_input, encoded_outcome], mode='concat', 
-#                                   concat_axis=-1, name='input_outcome_seq')     
-#         outcome = Dense(output_dim=len(self.outcome_set), activation='softmax', name='outcome')(input_outcome_seq)
-#         model = Model(input=[user_input, outcome_seq], output=[outcome])
-#         model.compile(loss="sparse_categorical_crossentropy", optimizer='adam', metrics=["accuracy"])      
-#         if self.verbose:
-#             print "CREATED MergeSequence model: embedding layer sizes =", self.n_embedding_nodes, ",",\
-#             self.n_encoding_layers, "encoding layers with size", self.n_hidden_nodes, ",",\
-#             self.n_decoding_layers, "decoding layers with size", self.n_hidden_nodes, ",",\
-#             "lexicon size = ", self.lexicon_size, ",",\
-#             "batch size = ", self.batch_size
-#         return model
-#     def fit(self, X, y, **kwargs):
-#         #import pdb;pdb.set_trace()
-#         if not self.sk_params["outcome_set"]:
-#             assert("outcome_set" in kwargs)
-#             self.sk_params.update(kwargs)
-            
-#         #outcome_set[y] are outcome sequences
-#         super(MergeSeqClassifier, self).fit([X, self.sk_params['outcome_set'][y]], y) #**kwargs)
-#         #hidden = self.get_sequence.predict(x=[X, numpy.repeat(self.outcome_set[0][None, :], len(X), axis=0)])
+    def predict(self, seq1, seq2, pred_method='mean'):
+
+        '''right now this function only handles getting prob for one sequence pair'''
+        if self.flat_input:
+            seq1 = seq1[None]
+        else:
+            seq1 = get_seq_batch([seq1], max_length=self.n_timesteps)
+        seq2 = get_seq_batch([seq2], padding='post', max_length=self.n_timesteps)
+        probs = self.model.predict_on_batch(seq1)[0]
+        probs = probs[numpy.arange(self.n_timesteps), seq2]
+        probs = probs[seq2 > 0]
+        if pred_method == 'mean':
+            prob = numpy.sum(numpy.log(probs))
+        elif pred_method == 'last':
+            prob = numpy.log(probs[-1])
+        elif pred_method == 'max':
+            prob = numpy.log(numpy.max(probs))
+        return prob
+
         
-#     def predict(self, X, **kwargs):
-#         #import pdb;pdb.set_trace()
-        
-#         max_probs = []
-#         for outcome, outcome_seq in enumerate(self.outcome_set):
-#             #get probs for this outcome
-#             probs = self.model.predict(x=[X, numpy.repeat(outcome_seq[None, :], len(X), axis=0)])[:, outcome]
-#             max_probs.append(probs)
-#         y = numpy.argmax(numpy.stack(max_probs, axis=1), axis=1)
-#         return y
+class EmbeddingSimilarity(SavedModel):
+    def predict(self, seq1, seq2):
+        seq1 = seq1 + 1e-8
+        seq2 = seq2 + 1e-8 #smooth to avoid NaN
+        score = 1 - cosine(seq1, seq2)
+        return score
 
-# class CausalEmbeddings(SavedModel):
-#     def __init__(self, lexicon_size=None, n_embedding_nodes=300, batch_size=100, filepath=None):
-#         self.lexicon_size = lexicon_size
-#         self.n_embedding_nodes = n_embedding_nodes
-#         self.batch_size = batch_size
-#         self.filepath = filepath
 
-#     def create_model(self):
-#         cause_word_layer = Input(shape=(1,), name="cause_word_layer") #batch_shape=(batch_size, 
-#         cause_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='cause_emb_layer')(cause_word_layer)
-#         effect_word_layer = Input(shape=(1,), name="effect_word_layer")#batch_shape=(batch_size,
-#         effect_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='effect_emb_layer')(effect_word_layer)#
-#         merge_layer = merge([cause_emb_layer, effect_emb_layer], mode='dot', concat_axis=-1, name='merge_layer')
-#         flatten_layer = Flatten(name='flatten_layer')(merge_layer)
-#         sigmoid_layer = Activation('sigmoid')(flatten_layer)
-#         model = Model(input=[cause_word_layer, effect_word_layer], output=sigmoid_layer)
-#         model.compile(loss='binary_crossentropy', optimizer='adam')
-#         return model
+class CausalEmbeddings(SavedModel):
+    def __init__(self, n_embedding_nodes=300, n_hidden_nodes=500, batch_size=100, filepath=None):
+        self.lexicon_size = None
+        self.n_embedding_nodes = n_embedding_nodes
+        self.n_hidden_nodes = n_hidden_nodes
+        self.batch_size = batch_size
+        self.filepath = filepath
 
-#     def fit(self, cause_words, effect_words, labels, lexicon_size=None, n_epochs=10):
+    def create_model(self):
 
-#         if not hasattr(self, 'model'):
-#             assert(lexicon_size is not None)
-#             self.lexicon_size = lexicon_size
-#             self.model = self.create_model()
-#             print "Created model", self.__class__.__name__, ":", self.__dict__
+        if self.embedded_input:
+            cause_word_layer = Input(shape=(self.n_embedding_nodes,), name="cause_word_layer") 
+            effect_word_layer = Input(shape=(self.n_embedding_nodes,), name="effect_word_layer")
+            cause_emb_layer = Dense(output_dim=self.n_embedding_nodes, name='cause_emb_layer', activation='tanh')(cause_word_layer)
+            effect_emb_layer = Dense(output_dim=self.n_embedding_nodes, name='effect_emb_layer', activation='tanh')(effect_word_layer)
+        else:
+            cause_word_layer = Input(shape=(1,), name="cause_word_layer")
+            effect_word_layer = Input(shape=(1,), name="effect_word_layer")
+            cause_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='cause_emb_layer')(cause_word_layer)
+            effect_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='effect_emb_layer')(effect_word_layer)
+            flatten_layer = Flatten(name='flatten_layer')
+            cause_emb_layer = flatten_layer(cause_emb_layer)
+            effect_emb_layer = flatten_layer(effect_emb_layer)
 
-#         self.model.fit(x=[cause_words, effect_words], y=labels, batch_size=self.batch_size, nb_epoch=n_epochs)
 
-#         if self.filepath:
-#             self.save()
+        merge_layer = merge([cause_emb_layer, effect_emb_layer], mode='concat', concat_axis=-1, name='merge_layer')
+        dense_layer = Dense(output_dim=self.n_hidden_nodes, name='dense_layer', activation='tanh')(merge_layer)
+        pred_layer = Dense(output_dim=1, name='pred_layer', activation='sigmoid')(dense_layer)
+        model = Model(input=[cause_word_layer, effect_word_layer], output=pred_layer)
+        model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+        return model
 
-#     def predict(self, cause_words, effect_words):
+    def fit(self, cause_words, effect_words, labels, lexicon_size=None, embedded_input=False, n_epochs=1):
 
-#         probs = self.model.predict(x=[cause_words, effect_words])
-#         return probs
+        if not hasattr(self, 'model'):
+            self.embedded_input = embedded_input
+            if not self.embedded_input:
+                assert(lexicon_size is not None)
+                self.lexicon_size = lexicon_size
+            self.model = self.create_model()
+            print("Created model", self.__class__.__name__, ":", self.__dict__)
+
+        self.model.fit(x=[cause_words[:, None], effect_words[:, None]], y=labels, batch_size=self.batch_size, nb_epoch=n_epochs)
+
+        if self.filepath:
+            self.save()
+
+    def predict(self, cause_words, effect_words):
+
+        probs = self.model.predict(x=[cause_words, effect_words])
+        return probs
 
 

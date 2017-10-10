@@ -2,21 +2,22 @@ from __future__ import print_function
 import pandas, argparse, numpy
 from models.pipeline import *
 
-def load_train_seqs(train_seqs_file):
+def load_train_seqs(train_seqs_file, chunk_size=10000):
 	#create generator object to read sequences in chunks (in case too many to fit in memory)
-	train_seqs = (seqs[0].values.tolist() for seqs in pandas.read_csv(train_seqs_file, encoding='utf-8', header=None, chunksize=10000))
+	train_seqs = (seqs[0].values.tolist() for seqs in pandas.read_csv(train_seqs_file, encoding='utf-8', header=None, chunksize=chunk_size))
 	return train_seqs
 
-def create_model(save_filepath, use_features=False, use_pos=False, min_freq=5, generalize_ents=False, batch_size=25, n_timesteps=15, n_hidden_layers=2, 
-				n_embedding_nodes=300, n_hidden_nodes=500, n_pos_nodes=100, n_feature_nodes=100):
+def create_model(save_filepath, use_features=False, use_pos=False, min_freq=5, generalize_ents=False, prepend_start=False,
+				batch_size=25, n_timesteps=15, n_hidden_layers=2, n_embedding_nodes=300, n_hidden_nodes=500, n_pos_nodes=100, n_feature_nodes=100):
 
 	if os.path.exists(save_filepath + '/transformer.pkl'): #if transformer already exists, load it
 	    transformer = SequenceTransformer.load(save_filepath)
 	else:
-	    transformer = SequenceTransformer(min_freq=min_freq, generalize_ents=generalize_ents, verbose=1, filepath=save_filepath)
+	    transformer = SequenceTransformer(min_freq=min_freq, generalize_ents=generalize_ents, prepend_start=prepend_start, filepath=save_filepath)
 
-	classifier = RNNLM(verbose=1, use_features=use_features, use_pos=use_pos, n_pos_tags=len(pos_tag_idxs), batch_size=batch_size, n_timesteps=n_timesteps, n_feature_nodes=n_feature_nodes, 
-						n_pos_nodes=n_pos_nodes, n_hidden_layers=n_hidden_layers, n_embedding_nodes=n_embedding_nodes, n_hidden_nodes=n_hidden_nodes, filepath=save_filepath)
+	classifier = RNNLM(verbose=1, use_features=use_features, use_pos=use_pos, n_pos_tags=len(pos_tag_idxs), batch_size=batch_size, 
+						n_timesteps=n_timesteps, n_feature_nodes=n_feature_nodes, n_pos_nodes=n_pos_nodes, n_hidden_layers=n_hidden_layers, 
+						n_embedding_nodes=n_embedding_nodes, n_hidden_nodes=n_hidden_nodes, filepath=save_filepath)
 
 	model = RNNLMPipeline(transformer, classifier)
 
@@ -31,10 +32,10 @@ def train_model(train_seqs_file, model, n_epochs):
 	for epoch in range(n_epochs):
 		print("training epoch {}/{}...".format(epoch + 1, n_epochs))
 		for seqs in load_train_seqs(train_seqs_file):
-			model.fit(seqs=seqs)
+			model.fit(seqs=seqs, verbose=False)
 			#sample some training sequences to show progress, generating final sentence in each sequence
 			samp_seqs = [segment(seq) for seq in random.sample(seqs, min(5, len(seqs)))]
-			context_seqs = [" ".join(seq[:-1]) for seq in samp_seqs]
+			context_seqs = [" ".join(seq[:4]) for seq in samp_seqs]
 			gold_seqs = [seq[-1] for seq in samp_seqs]
 			gen_seqs = model.predict(seqs=context_seqs, n_best=1, mode='random', batch_size=len(samp_seqs),
 			                          temp=1.0, n_sents_per_seq=1, detokenize=True, adapt_ents=True)
@@ -54,6 +55,7 @@ if __name__ == '__main__':
 													this number of times will be added. Default is 5.", required=False, type=int, default=5)
 	parser.add_argument("--generalize_ents", "-ents", help="Specify that named entities should be replaced with a general entity type token (e.g. ENT_PERSON_0, ENT_ORG_1). If not given, entities will be treated like all other tokens.", 
 													required=False, action='store_true')
+	parser.add_argument("--prepend_start", "-pre", help="Specify that a start-of-sequence token (<START>) should be prepended to the beginning of each sequence.", required=False, action='store_true')
 	parser.add_argument("--batch_size", "-batch", help="Specify number of sequences in batch during training. Default is 25.", required=False, type=int, default=25)
 	parser.add_argument("--n_timesteps", "-step", help="Specify number of timesteps (tokens) in a batch of sequences that should be read at a single time between updates. Default is 15.", 
 												required=False, type=int, default=15)
@@ -66,7 +68,7 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	model = create_model(save_filepath=args.save_filepath, use_features=args.use_features, use_pos=args.use_pos, min_freq=args.min_freq, generalize_ents=args.generalize_ents, 
- 						batch_size=args.batch_size, n_timesteps=args.n_timesteps, n_hidden_layers=args.n_hidden_layers, 
+ 						prepend_start=args.prepend_start, batch_size=args.batch_size, n_timesteps=args.n_timesteps, n_hidden_layers=args.n_hidden_layers, 
  						n_embedding_nodes=args.n_embedding_nodes, n_hidden_nodes=args.n_hidden_nodes, n_feature_nodes=args.n_feature_nodes, n_pos_nodes=args.n_pos_nodes)
 	train_model(train_seqs_file=args.train_seqs, model=model, n_epochs=args.n_epochs)
 

@@ -1,4 +1,4 @@
-import numpy, argparse, timeit, collections, os, sqlite3, cPickle
+import numpy, argparse, timeit, collections, os, sqlite3, pickle, cPickle
 import theano
 import theano.tensor as T
 import theano.typed_list
@@ -12,17 +12,18 @@ numpy.set_printoptions(suppress=True)
 
 rng = numpy.random.RandomState(123)
 
-class PMIModel(object):
 
-	def __init__(self, dataset_name):
-		self.dataset_name = dataset_name
+class PMIModel(object):
+	def __init__(self, filepath, transformer):
+		self.filepath = filepath
+		self.transformer = transformer
 		self.unigram_counts = None
 		self.unigram_counts_filename = "unigram_counts.pkl"
 		self.lexicon_size = None
-		self.bigram_db_name = "bigram_counts.db"
+		self.bigram_db_filename = "bigram_counts.db"
 		self.n_bigram_counts = None
 		self.n_bigram_counts_filename = "n_bigram_counts.pkl"
-		self.train_stories = None
+		#self.train_stories = None
 		self.count_window_bigrams = None
 
 		#if not os.path.isfile(self.dataset_name + "/" + self.bigram_counts_db):
@@ -48,7 +49,7 @@ class PMIModel(object):
 
 	    words = numpy.array(word_counts.keys())
 	    self.unigram_counts = numpy.array(word_counts.values(), dtype='int32')
-	    self.unigram_counts = self.unigram_counts[words]
+	    self.unigram_counts = unigram_counts[words]
 
 	    #compute num words with count >= min_word_frequency
 	    #lexicon_size = numpy.sum(counts >= min_freq)
@@ -70,10 +71,10 @@ class PMIModel(object):
 	    self.lexicon_size = len(self.unigram_counts)
 	    self.n_unigram_counts = sum(self.unigram_counts)
 	    self.save(obj=self.unigram_counts, filename=self.unigram_counts_filename)
-	    print "Saved", self.lexicon_size, "unigram counts to", self.dataset_name + "/" + self.unigram_counts_filename
+	    print "Saved", self.lexicon_size, "unigram counts to", self.filepath + "/" + self.unigram_counts_filename
     
 
-	def init_count_window_bigrams(self, window_size=None, batch_size=None):
+	def init_count_window_bigrams(self, train_stories, window_size=None, batch_size=None):
 
 		window = T.matrix('window', dtype='int32')
 		window.tag.test_value = rng.randint(low=0, high=self.lexicon_size, size=(window_size, 100)).astype('int32')
@@ -90,7 +91,7 @@ class PMIModel(object):
 		batch_index.tag.test_value = 0
 
 		#select words in sequence and batch
-		window_ = self.train_stories[word_index:word_index + window_size, batch_index:batch_index + batch_size]
+		window_ = train_stories[word_index:word_index + window_size, batch_index:batch_index + batch_size]
 		#filter stories with all empty words from this batch
 		window_ = window_[:, T.argmin(window_[0] < 0):]
 
@@ -106,7 +107,7 @@ class PMIModel(object):
 		n_stories = len(stories)
 
 		#initialize shared stories with random data
-		self.train_stories = theano.shared(rng.randint(low=0, high=self.lexicon_size, size=(window_size, n_stories)).astype('int32'), borrow=True)
+		train_stories = theano.shared(rng.randint(low=0, high=self.lexicon_size, size=(window_size, n_stories)).astype('int32'), borrow=True)
 
 		self.init_count_window_bigrams(window_size=window_size, batch_size=batch_size)
 
@@ -132,12 +133,12 @@ class PMIModel(object):
 			stories = numpy.append(numpy.ones((padding, stories.shape[-1]), dtype='int32') * -1, stories, axis=0)
 			n_stories = len(stories)
 
-		self.train_stories.set_value(stories.T)
-		max_story_length = self.train_stories.get_value().shape[0]
+		train_stories.set_value(stories.T)
+		max_story_length = train_stories.get_value().shape[0]
 
 		for batch_index in xrange(0, n_stories, batch_size):
 
-			story_length = numpy.sum(self.train_stories.get_value()[:, batch_index + batch_size - 1] > -1)
+			story_length = numpy.sum(train_stories.get_value()[:, batch_index + batch_size - 1] > -1)
 
 			for word_index in xrange(story_length):
 
@@ -178,7 +179,7 @@ class PMIModel(object):
 		
 		print "Saved", n_bigram_counts, "bigram counts to", self.dataset_name + "/" + self.bigram_db_name
 
-	def save_bigrams(self, bigram_counts=None):
+	def save_bigrams(self, bigram_counts):
 
 		connection = sqlite3.connect(self.dataset_name + "/" + self.bigram_db_name)
 		cursor = connection.cursor()
@@ -223,18 +224,17 @@ class PMIModel(object):
 		save the number of counts to a file'''
 		self.save(obj=n_bigram_counts, filename=self.n_bigram_counts_filename)
 
+	# def get_n_bigram_counts(self):
 
-	def get_n_bigram_counts(self):
+	# 	#load n_bigram_counts.pkl
+	# 	n_bigram_counts = self.load(filename=self.n_bigram_counts_filename)
 
-		#load n_bigram_counts.pkl
-		n_bigram_counts = self.load(filename=self.n_bigram_counts_filename)
+	# 	#return total number of bigram tokens
+	# 	return n_bigram_counts
 
-		#return total number of bigram tokens
-		return n_bigram_counts
+	def get_bigram_count(self, word1, word2):
 
-	def get_bigram_count(self, word1=None, word2=None):
-
-		connection = sqlite3.connect(self.dataset_name + "/" + self.bigram_db_name)
+		connection = sqlite3.connect(self.filepath + "/" + self.bigram_db_filename)
 		cursor = connection.cursor()
 
 		cursor.execute("SELECT count FROM bigram WHERE word1 = ? AND word2 = ?", (int(word1), int(word2)))
@@ -250,7 +250,7 @@ class PMIModel(object):
 		#return total number of bigram tokens as well as unique bigram types
 		return bigram_count
 
-	def compute_pmi(self, word1=None, word2=None):
+	def compute_pmi(self, word1, word2):
 
 		word1_count = self.unigram_counts[word1]
 		if not word1_count:
@@ -266,31 +266,36 @@ class PMIModel(object):
 
 		return pmi
 
-	def score(self, sequence1, sequence2):
+	def predict(self, seqs1, seqs2, pred_method='mean'):
 		'''compute total pmi for each ordered pair of words in a pair of sequences - result is score of association between sequence1 and sequence2'''
 
-		if self.unigram_counts is None:
-			self.unigram_counts = self.load(self.unigram_counts_filename)
-		if not self.lexicon_size:
-			self.lexicon_size = len(self.unigram_counts)
+		# if self.unigram_counts is None:
+		# 	self.unigram_counts = self.load(self.unigram_counts_filename)
+		# if not self.lexicon_size:
+		# 	self.lexicon_size = len(self.unigram_counts)
+		seqs1 = self.transformer.text_to_nums(seqs1)
+		seqs2 = self.transformer.text_to_nums(seqs2)
 
-		sum_pmi = 0
-		pmis = []
+		#seq1, seq2 = self.transformer.text_to_nums([seq1, seq2])
+		pmi_scores = []
 
-		for word1 in sequence1:
-			for word2 in sequence2:
-				#get pmi of these words
-				pmi = self.compute_pmi(word1, word2)
-				sum_pmi += pmi
-				pmis.append(pmi)
+		for seq1, seq2 in zip(seqs1, seqs2):
 
-		max_pmi = max(pmis)
+			sum_pmi = 0
+			pmis = []
 
-		#normalize score by length of sequences
-		pmi_score = sum_pmi / (len(sequence1) * len(sequence2))
-		#pmi_score = max_pmi
+			for word1 in seq1:
+				for word2 in seq2:
+					#get pmi of these words
+					pmi = self.compute_pmi(word1, word2)
+					sum_pmi += pmi
+					pmis.append(pmi)
 
-		return pmi_score
+			#normalize score by length of sequences
+			pmi_score = sum_pmi / (len(seq1) * len(seq2))
+			pmi_scores.append(pmi_score)
+
+		return pmi_scores
 
 	def save(self, obj=None, filename=None):
 
@@ -301,14 +306,26 @@ class PMIModel(object):
 
 		# return filename
 
-	def load(self, filename=None):
+	@classmethod
+	def load(cls, filepath):
 
-		filepath = self.dataset_name + "/" + filename
+		with open(filepath + '/transformer.pkl', 'rb') as f:
+			transformer = pickle.load(f)
 
-		with open(filepath, 'rb') as object_file:
-			obj = cPickle.load(object_file)
+		model = cls(filepath, transformer)
 
-		return obj
+		with open(filepath + '/unigram_counts.pkl', 'rb') as f:
+			unigram_counts = cPickle.load(f)
+
+		model.unigram_counts = unigram_counts
+		model.lexicon_size = len(unigram_counts)
+
+		with open(filepath + '/n_bigram_counts.pkl', 'rb') as f:
+			n_bigram_counts = cPickle.load(f)
+
+		model.n_bigram_counts = n_bigram_counts
+
+		return model
 
 
 def make_pmi(stories, filepath):
