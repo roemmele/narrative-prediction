@@ -3,7 +3,7 @@ This repository contains Python code that uses Keras to train a Recurrent Neural
 
 ## Dependencies
 
-I developed this code in Python 2.7 but I briefly tested in Python 3.6, so hopefully it will run in both. It requires these libraries: [Keras](keras.io), [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [spaCy](https://spacy.io/), and [Theano](http://deeplearning.net/software/theano/).
+I developed this code in Python 2.7 but I briefly tested in Python 3.6, so hopefully it will run in both. It requires these libraries: [Keras](keras.io), [Theano](http://deeplearning.net/software/theano/), [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/).
 
 ## Training
 
