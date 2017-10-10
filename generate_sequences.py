@@ -2,16 +2,15 @@ from __future__ import print_function
 import pandas, argparse, numpy
 from models.pipeline import *
 
-def generate(context_seqs_file, model, save_filepath, gen_mode='random', temperature=1.0, n_gen_per_context=1, n_sents_per_seq=1, eos_tokens=[], 
-			detokenize=True, capitalize_ents=True, adapt_ents=True, batch_size=1000):
+def generate(context_seqs_file, model, save_filepath, gen_mode='random', temperature=1.0, n_gen_per_context=1, n_sents_per_seq=1, 
+			n_context_sents=-1, eos_tokens=[], detokenize=True, capitalize_ents=True, adapt_ents=True, batch_size=1000):
 
 	context_seqs = pandas.read_csv(context_seqs_file, encoding='utf-8', header=None).loc[:,0].values.tolist()
 	batch_size = min(batch_size, len(context_seqs))
 	gen_seqs = model.predict([context_seqs[idx] for idx in numpy.arange(len(context_seqs)).repeat(n_gen_per_context)], mode=gen_mode,
-							batch_size=batch_size, temp=temperature, n_sents_per_seq=n_sents_per_seq, eos_tokens=eos_tokens, detokenize=detokenize,
-							capitalize_ents=capitalize_ents, adapt_ents=adapt_ents)
+							batch_size=batch_size, temp=temperature, n_sents_per_seq=n_sents_per_seq, n_context_sents=n_context_sents,
+							eos_tokens=eos_tokens, detokenize=detokenize, capitalize_ents=capitalize_ents, adapt_ents=adapt_ents)
 	gen_seqs = [gen_seqs[idx:idx + n_gen_per_context] for idx in range(0, len(context_seqs) * n_gen_per_context, n_gen_per_context)]
-	#save_filepath = save_prefix + str(len(context_seqs)) + '_' + str(n_gen_per_context) + '.csv'
 	pandas.DataFrame(gen_seqs).to_csv(save_filepath, header=False, index=False, encoding='utf-8')
 	print("saved generated sequences to", save_filepath)
 	print("SAMPLE OF GENERATED SEQUENCES:")
@@ -36,6 +35,9 @@ if __name__ == '__main__':
 	parser.add_argument("--n_gen_per_context", "-ngen", help="Specify how many sequences should be generated for each context sequence. Default is one sequence per context sequence.", type=int, required=False, default=1)
 	parser.add_argument("--n_sents_per_seq", "-nsents", help="Specify the length of generated sequences in terms of the number of sentences.\
 															Default is one sentence per sequence.", type=int, required=False, default=1)
+	parser.add_argument("--n_context_sents", "-ncont", help="Specify if the context should be truncated so that only the N most recent sentences are taken into account when generating the next sequence.\
+															If the model uses feature vectors, the features will still take into account the whole context.\
+															Default is -1, which means all context sentences will be included.", type=int, required=False, default=-1)
 	parser.add_argument("--eos_tokens", "-eos", help="If sentence boundaries should be determined by the occurence of specific end-of-sentence tokens, specify these tokens.\
 													Default is None, in which case sentence boundaries will be automatically inferred by spaCy's segmenter.", nargs='+', required=False, default=[])
 	# parser.add_argument("--detokenize", "-detok", help="Specify whether generated sequences should be detokenized so that output is string with formatted punctuation. Default is True", 
@@ -47,4 +49,4 @@ if __name__ == '__main__':
 
 	model = RNNLMPipeline.load(args.model_filepath)
 	gen_seqs = generate(context_seqs_file=args.context_seqs, model=model, save_filepath=args.save_filepath, gen_mode=args.gen_mode, temperature=args.temperature, n_gen_per_context=args.n_gen_per_context, 
-						n_sents_per_seq=args.n_sents_per_seq, eos_tokens=args.eos_tokens)#, detokenize=args.detokenize, capitalize_ents=args.capitalize_ents, adapt_ents=args.adapt_ents)
+						n_sents_per_seq=args.n_sents_per_seq, n_context_sents=args.n_context_sents, eos_tokens=args.eos_tokens)#, detokenize=args.detokenize, capitalize_ents=args.capitalize_ents, adapt_ents=args.adapt_ents)
