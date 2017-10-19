@@ -6,14 +6,14 @@ from itertools import *
 #from keras.preprocessing.sequence import pad_sequences
 
 #SKIPTHOUGHTS
-'''sys.path.append('skip-thoughts-master')
+sys.path.append('skip-thoughts-master')
 sys.path.append('../skip-thoughts-master')
 import skipthoughts
 reload(skipthoughts)
 from training import vocab
 from training import train as encoder_train
 from training import tools as encoder_tools
-reload(encoder_tools)'''
+reload(encoder_tools)
 
 #load spacy model for nlp tools
 encoder = spacy.load('en')
@@ -316,6 +316,39 @@ def randomize_pairs(pairs):
     random_pairs = [(seqs[idx1], seqs[idx2]) for idx1, idx2 in random_idx_pairs]
     return random_pairs
 
+# def segment_into_clauses(seq):
+#     '''applies a set of heuristics to segment a sequence (one or more sentences) into clauses
+#     the clauses are those that would useful for splitting causal events, so not all types clauses will be recognized'''
+#     clauses = []
+#     sents = segment(seq)
+#     for sent in sents:
+#         sent = encoder(sent)
+#         clause_bound_idxs = []
+#         for word in sent:
+#             if word.dep_ in ('advcl','conj','pcomp')\
+#             and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
+#                 if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
+#                     clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
+#                 if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
+#                     clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
+#                 clause_bound_idxs.append(word.right_edge.i + 1)
+#         if clause_bound_idxs and clause_bound_idxs[0] == 1:
+#             clause_bound_idxs[0] = 0 #merge first word in first clause if split out
+#         if not clause_bound_idxs or clause_bound_idxs[0]:
+#             clause_bound_idxs.insert(0, 0)
+#         if clause_bound_idxs[-1] < len(sent):
+#             clause_bound_idxs.append(len(sent)) #set clause boundary at end of sentence
+#         sent_clauses = []
+#         for idx,next_idx in zip(clause_bound_idxs, clause_bound_idxs[1:]):
+#             clause = sent[idx:next_idx]#.string
+#             if sent_clauses and len(clause) == 1 and clause[-1].pos_ == 'PUNCT':  #if clause is punctuation, append it to previous clause
+#                 sent_clauses[-1] = sent_clauses[-1] + clause.string
+#             else:
+#                 sent_clauses.append(clause.string)
+#         clauses.extend(sent_clauses)
+#     return clauses
+
+'''10/19/18: New clause segmentation function. Main differences is that only verbs are considered for segmentation (which avoids segmenting conjunctions of nouns)'''
 def segment_into_clauses(seq):
     '''applies a set of heuristics to segment a sequence (one or more sentences) into clauses
     the clauses are those that would useful for splitting causal events, so not all types clauses will be recognized'''
@@ -324,14 +357,18 @@ def segment_into_clauses(seq):
     for sent in sents:
         sent = encoder(sent)
         clause_bound_idxs = []
+        verb_found = False
         for word in sent:
-            if word.dep_ in ('advcl','conj','pcomp')\
-            and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'): #'ccomp','ccomp','relcl','acomp','xcomp'
-                if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
-                    clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
-                if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
-                    clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
-                clause_bound_idxs.append(word.right_edge.i + 1)
+            if word.pos_ == 'VERB': #, 'ROOT')\
+                if word.dep_ in ('advcl','conj','pcomp', 'relcl')\
+                    and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
+                    if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
+                        clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
+                    if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
+                        if verb_found or word.left_edge.i == 0: #don't segment any previously detected clauses that don't contain a verb
+                            clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
+                    clause_bound_idxs.append(word.right_edge.i + 1)
+                verb_found = True
         if clause_bound_idxs and clause_bound_idxs[0] == 1:
             clause_bound_idxs[0] = 0 #merge first word in first clause if split out
         if not clause_bound_idxs or clause_bound_idxs[0]:
@@ -349,8 +386,6 @@ def segment_into_clauses(seq):
     return clauses
 
 
-    return clauses
-
 def load_seqs(filepath, memmap=False, shape=None):
     if memmap:
         #file was saved as memmap
@@ -361,14 +396,14 @@ def load_seqs(filepath, memmap=False, shape=None):
     return seqs
 
 
-class SequenceTransformer():#):
+class SequenceTransformer():
     def __init__(self, min_freq=1, lexicon=[], lemmatize=False, prepend_start=False,
-                include_tags=[], verbose=1, unk_word=u"<UNK>", word_embeddings=None,
+                include_tags=[], verbose=1, unk_word=u"<UNK>", word_embs=None,
                 use_spacy_embs=False, generalize_ents=False, filepath=None): #reduce_emb_mode=None, 
         self.unk_word = unk_word #string representation for unknown words in lexicon
-        self.word_embeddings = word_embeddings #use existing word embeddings if given
-        if self.word_embeddings:
-            self.n_embedding_nodes = self.word_embeddings.vector_size
+        self.word_embs = word_embs #use existing word embeddings if given
+        if self.word_embs:
+            self.n_embedding_nodes = self.word_embs.vector_size
         self.use_spacy_embs = use_spacy_embs
         if self.use_spacy_embs:
             self.n_embedding_nodes = encoder.vocab.vectors_length
@@ -381,12 +416,11 @@ class SequenceTransformer():#):
         self.verbose = verbose
         self.generalize_ents = generalize_ents #specify if named entities should be replaced with generic labels
         self.ent_counts = {}
-        #self.reduce_emb_mode = reduce_emb_mode #specify if embeddings should be combined across sequence (e.g. take mean, sum)
         self.filepath = filepath
         self.prepend_start = prepend_start
         self.ent_count_sample_threshold = None
         if self.verbose:
-            print("Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embeddings')})
+            print("Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embs')})
         if self.filepath: #if filepath given, save transformer
             self.save()
 
@@ -395,10 +429,8 @@ class SequenceTransformer():#):
         self.lexicon = {} #regenerate lexicon everytime this function is called; word_counts will persist between calls
         self.lexicon[self.unk_word] = 1
         for seq in seqs:
-            #first get named entities
-            if self.generalize_ents:
-                #reduce vocab by mapping all named entities to entity labels (e.g. "PERSON_0")
-                ents, ent_counts = get_ents(seq)
+            if self.generalize_ents: #reduce vocab by mapping all named entities to entity labels (e.g. "PERSON_0")
+                ents, ent_counts = get_ents(seq) #first get named entities
                 for ent, ent_type in ents.items(): #build a dictionary of entities that can be substituted when a generated entity isn't resolved
                     if ent_type not in self.ent_counts:
                         self.ent_counts[ent_type] = {}
@@ -407,7 +439,6 @@ class SequenceTransformer():#):
                     else:
                         self.ent_counts[ent_type][ent] += 1
                 seq = self.replace_ents_in_seq(seq)
-            # else:
             seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags, prepend_start=self.prepend_start)
 
             for word in seq:
@@ -462,17 +493,17 @@ class SequenceTransformer():#):
         assert(len(seqs) == len(num_seqs))
         return num_seqs
 
-    def text_to_embs(self, seqs, reduce_emb_mode=None):#, word_embeddings=None):
+    def text_to_embs(self, seqs, reduce_emb_mode=None):#, word_embs=None):
         '''tokenize string sequences and convert to word embeddings; if 'spacy' is given for word embeddings, encode directly through spacy API;
-        if separate word embeddings given, use these embeddings; otherwise use existing self.word_embeddings'''
-        # if not word_embeddings and not self.use_spacy_embs:
-        #     word_embeddings = self.word_embeddings
+        if separate word embeddings given, use these embeddings; otherwise use existing self.word_embs'''
+        # if not word_embs and not self.use_spacy_embs:
+        #     word_embs = self.word_embs
         #     n_embedding_nodes = self.n_embedding_nodes
         # else:
         # if self.use_spacy_embs:
         #     n_embedding_nodes = encoder.vocab.vectors_length
         # else:
-        #     n_embedding_nodes = word_embeddings.vector_size
+        #     n_embedding_nodes = word_embs.vector_size
         #import pdb;pdb.set_trace()
         embedded_seqs = []
         for seq in seqs:
@@ -482,8 +513,8 @@ class SequenceTransformer():#):
             elif self.use_spacy_embs:
                 seq = numpy.array([encoder(word).vector for word in seq])
             else:
-                seq = numpy.array([self.word_embeddings[word] if word in self.word_embeddings else numpy.zeros((self.n_embedding_nodes))
-                       for word in seq])
+                seq = numpy.array([self.word_embs[word] if word in self.word_embs else numpy.zeros((self.n_embedding_nodes))
+                                    for word in seq])
             if reduce_emb_mode: #combine embeddings of each sequence by averaging or summing them
                 if reduce_emb_mode == 'mean':
                     seq = numpy.mean(seq, axis=0)
@@ -504,6 +535,13 @@ class SequenceTransformer():#):
         count_vecs = numpy.array(count_vecs)
         count_vecs[:,0] = 0 #don't include 0s in vector (0's are words that are not part of context)
         return count_vecs
+
+    def text_to_bow(self, seqs):
+        '''tokenize string sequences and convert to list of word indices'''
+        #import pdb;pdb.set_trace()
+        seqs = self.text_to_nums(seqs)
+        bow_seqs = self.num_seqs_to_bow(seqs)
+        return bow_seqs
     
     def decode_num_seqs(self, seqs, n_sents_per_seq=None, eos_tokens=[], detokenize=False, ents=[], capitalize_ents=False, adapt_ents=False):
         if type(seqs[0]) not in (list, numpy.ndarray, tuple):
@@ -529,16 +567,16 @@ class SequenceTransformer():#):
             decoded_seqs.append(seq)
         return decoded_seqs
             
-    def nums_to_embs(self, seqs, reduce_emb_mode=None):#, word_embeddings=None):
+    def nums_to_embs(self, seqs, reduce_emb_mode=None):#, word_embs=None):
         # #convert word indices to vectors
-        # if not word_embeddings: #if separate word embeddings given, use these embeddings; otherwise use existing self.word_embeddings
-        #     word_embeddings = self.word_embeddings
-        # n_embedding_nodes = word_embeddings.vector_size
+        # if not word_embs: #if separate word embeddings given, use these embeddings; otherwise use existing self.word_embs
+        #     word_embs = self.word_embs
+        # n_embedding_nodes = word_embs.vector_size
         embedded_seqs = []
         for seq in seqs:
             #convert to vectors rather than indices - if word not in lexicon represent with all zeros
-            seq = [self.word_embeddings[self.lexicon_lookup[word]]
-                   if self.lexicon_lookup[word] in self.word_embeddings
+            seq = [self.word_embs[self.lexicon_lookup[word]]
+                   if self.lexicon_lookup[word] in self.word_embs
                     else numpy.zeros((self.n_embedding_nodes))
                    for word in seq]
             seq = numpy.array(seq)
@@ -605,20 +643,20 @@ class SequenceTransformer():#):
         
     def __getstate__(self):
         #don't save embeddings
-        state = dict((k, v) for (k, v) in self.__dict__.items() if k not in ('word_embeddings'))
-        state.update({'word_embeddings': None})
+        state = dict((k, v) for (k, v) in self.__dict__.items() if k not in ('word_embs'))
+        state.update({'word_embs': None})
         return state
 
     @classmethod
-    def load(cls, filepath, word_embeddings=None):
+    def load(cls, filepath, word_embs=None):
         with open(filepath + '/transformer.pkl', 'rb') as f:
             transformer = pickle.load(f)
-        transformer.word_embeddings = word_embeddings
+        transformer.word_embs = word_embs
         print('loaded transformer with', transformer.lexicon_size, 'words from', str(filepath) + '/transformer.pkl')
         return transformer
 
 
-'''class SkipthoughtsTransformer(SequenceTransformer):
+class SkipthoughtsTransformer(SequenceTransformer):
     def __init__(self, encoder_module=skipthoughts, filepath=None, encoder_dim=4800, verbose=True):
         self.encoder_module = encoder_module
         self.filepath = filepath
@@ -662,7 +700,7 @@ class SequenceTransformer():#):
         return embedded_seqs
 
     @classmethod
-    def load(cls, filepath='../skip-thoughts-master', word_embeddings='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
+    def load(cls, filepath='../skip-thoughts-master', word_embs='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
         if pretrained:
             #filepaths are hard-coded for pre-trained skipthought model
             encoder_module = skipthoughts
@@ -670,7 +708,7 @@ class SequenceTransformer():#):
 
         else:
             encoder_module = encoder_tools
-            sent_encoder = encoder_module.load_model(embed_map=word_embeddings, 
+            sent_encoder = encoder_module.load_model(embed_map=word_embs, 
                                                      path_to_model=filepath + '/encoder', 
                                                      path_to_dictionary=filepath + '/lexicon')
             
@@ -681,22 +719,22 @@ class SequenceTransformer():#):
         print('loaded skipthoughts encoder from', filepath)
 
         return transformer
-'''
+
 
 class WordEmbeddings():
-    def __init__(self, embs_filepath, lexicon_filepath, embs=None, lexicon=None):
-        self.embs_filepath = embs_filepath
-        self.lexicon_filepath = lexicon_filepath
-        if embs is not None:
-            numpy.save(self.embs_filepath, embs)
+    def __init__(self, filepath):#, embs=None, lexicon=None):
+        self.embs_filepath = filepath + "/embeddings.npy"
+        self.lexicon_filepath = filepath + "/lexicon.pkl"
+        # if embs is not None:
+        #     numpy.save(self.embs_filepath, embs)
         self.embs = numpy.load(self.embs_filepath, mmap_mode='r')
         self.vector_size = self.embs.shape[-1]
-        if lexicon is None:
-            with open(self.lexicon_filepath, 'rb') as f:
-                lexicon = pickle.load(f)
-        else: #save lexicon
-            with open(self.lexicon_filepath, 'wb') as f:
-                pickle.dump(lexicon, f)
+        # if lexicon is None:
+        with open(self.lexicon_filepath, 'rb') as f:
+            lexicon = pickle.load(f)
+        # else: #save lexicon
+        #     with open(self.lexicon_filepath, 'wb') as f:
+        #         pickle.dump(lexicon, f)
         self.lexicon = lexicon
     def __getitem__(self, word):
         word_emb = self.embs[self.lexicon[word]]
@@ -704,8 +742,9 @@ class WordEmbeddings():
     def __contains__(self, word):
         return word in self.lexicon
     @classmethod
-    def load(cls, embs_filepath, lexicon_filepath):
-        word_embs = WordEmbeddings(embs_filepath, lexicon_filepath)
+    def load(cls, filepath):
+        word_embs = WordEmbeddings(filepath)
+        print("loaded word embeddings with", len(word_embs.lexicon), "words from", filepath)
         return word_embs
 
 

@@ -266,7 +266,27 @@ class PMIModel(object):
 
 		return pmi
 
-	def predict(self, seqs1, seqs2, pred_method='mean'):
+	def compute_causal_pmi(self, word1, word2):
+	    # import pdb;pdb.set_trace()
+	    word1_count = self.unigram_counts[word1]
+	    if not word1_count:
+	        word1_count = 1e-10
+	    word2_count = self.unigram_counts[word2]
+	    if not word2_count:
+	        word2_count = 1e-10
+
+	    #get bigram count from db
+	    fwd_bigram_count = self.get_bigram_count(word1, word2)
+	    bkwd_bigram_count = self.get_bigram_count(word2, word1)
+	    
+	    fwd_score = fwd_bigram_count * 1. / (word1_count * word2_count)
+	    bkwd_score = bkwd_bigram_count * 1. / (word1_count * word2_count)
+
+	    causal_pmi = numpy.log(fwd_score) + numpy.log(bkwd_score)
+
+	    return causal_pmi
+
+	def predict(self, seqs1, seqs2, pred_method='mean', causal=True):
 		'''compute total pmi for each ordered pair of words in a pair of sequences - result is score of association between sequence1 and sequence2'''
 
 		# if self.unigram_counts is None:
@@ -287,7 +307,10 @@ class PMIModel(object):
 			for word1 in seq1:
 				for word2 in seq2:
 					#get pmi of these words
-					pmi = self.compute_pmi(word1, word2)
+					if causal:
+						pmi = self.compute_causal_pmi(word1, word2)
+					else:
+						pmi = self.compute_pmi(word1, word2)
 					sum_pmi += pmi
 					pmis.append(pmi)
 

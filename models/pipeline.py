@@ -373,11 +373,22 @@ class Seq2SeqPipeline(Pipeline):
                 seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
             else:
                 seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
-            assert(type(seqs1) == numpy.ndarray)
+                #seqs1 = self.transformer.text_to_bow(seqs1)
+            #assert(type(seqs1) == numpy.ndarray)
         else:
             seqs1 = self.transformer.text_to_nums(seqs1)
 
-        seqs2 = self.transformer.text_to_nums(seqs2)
+        if self.classifier.flat_output:
+            if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
+                seqs2 = self.skip_vectorizer.text_to_embs(seqs2)[:,0,:]
+            else:
+                #seqs2 = self.transformer.text_to_embs(seqs2, reduce_emb_mode='sum')
+                #seqs2 = self.transformer.text_to_bow(seqs2)
+                seqs2 = self.transformer.text_to_nums(seqs2)
+            #assert(type(seqs2) == numpy.ndarray)
+        else:
+            seqs2 = self.transformer.text_to_nums(seqs2)
+
         assert(len(seqs1) == len(seqs2))
 
         for epoch in range(n_epochs):
@@ -415,19 +426,25 @@ class Seq2SeqPipeline(Pipeline):
 
     def predict(self, seqs1, seqs2, pred_method='mean'):
         '''return a total score for the prob that seq2 follows seq1'''
-        # if self.classifier.embedded_input:
-        #     seq1, seq2 = self.transformer.pad_embs(self.transformer.text_to_embs([seq1, seq2]), max_length=self.classifier.n_timesteps)
-        # else:
         if self.classifier.flat_input:
             if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
                 seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
             else:
                 seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
-            assert(type(seqs1) == numpy.ndarray)
+            #assert(type(seqs1) == numpy.ndarray)
         else:
             seqs1 = self.transformer.text_to_nums(seqs1)
 
-        seqs2 = self.transformer.text_to_nums(seqs2)
+        if self.classifier.flat_output:
+            if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
+                seqs2 = self.skip_vectorizer.text_to_embs(seqs2)[:,0,:]
+            else:
+                #seqs2 = self.transformer.text_to_embs(seqs2, reduce_emb_mode='sum')
+                #seqs2 = self.transformer.text_to_bow(seqs2)
+                seqs2 = self.transformer.text_to_nums(seqs2)
+            #assert(type(seqs2) == numpy.ndarray)
+        else:
+            seqs2 = self.transformer.text_to_nums(seqs2)
 
         probs = []
         for seq1, seq2 in zip(seqs1, seqs2):
@@ -436,8 +453,8 @@ class Seq2SeqPipeline(Pipeline):
         return probs
 
     @classmethod
-    def load(cls, filepath, has_skip_vectorizer=False, skip_filepath=None):
-        transformer = SequenceTransformer.load(filepath)
+    def load(cls, filepath, word_embs=None, has_skip_vectorizer=False, skip_filepath=None):
+        transformer = SequenceTransformer.load(filepath, word_embs=word_embs)
         classifier = SavedModel.load(filepath)
         if has_skip_vectorizer:
             if skip_filepath:

@@ -64,7 +64,8 @@ def get_seq_batch(seqs, batch_size=None, padding='pre', max_length=None, n_times
         seqs = numpy.append(seqs, batch_padding, axis=0)
     return seqs
 
-def get_vector_batch(seqs, vector_length):
+def get_vector_batch(seqs, vector_length, binary_values=False):
+    #import pdb;pdb.set_trace()
     '''takes sequences of word indices as input and returns word count vectors'''
     batch = []
     for seq in seqs:
@@ -72,6 +73,8 @@ def get_vector_batch(seqs, vector_length):
         batch.append(seq)
     batch = numpy.array(batch)
     batch[:,0] = 0
+    if binary_values:
+        batch[batch > 0] = 1 #store 1 if word occurred rather than total count
     return batch
 
 def get_batch_features(features, batch_size=None):
@@ -1227,7 +1230,8 @@ class MLPLM(SavedModel):
 class Seq2Seq(SavedModel):
     def __init__(self, batch_size=100, n_encoding_layers=1, n_decoding_layers=1, 
                  n_embedding_nodes=300, n_hidden_nodes=500, use_attention=False, 
-                 flat_input=False, n_flat_input_nodes=4800, use_dropout=False, filepath=None, verbose=True):
+                 flat_input=False, flat_output=False, n_flat_input_nodes=4800, 
+                 use_dropout=False, filepath=None, verbose=True):
         
         self.batch_size = batch_size
         self.n_embedding_nodes = n_embedding_nodes
@@ -1239,6 +1243,7 @@ class Seq2Seq(SavedModel):
         self.use_attention = use_attention
         self.use_dropout = use_dropout
         self.flat_input = flat_input
+        self.flat_output = flat_output
         self.n_flat_input_nodes = n_flat_input_nodes
         self.verbose = verbose
         self.n_timesteps = None
@@ -1248,7 +1253,7 @@ class Seq2Seq(SavedModel):
         
         if self.flat_input: #input is flat vector rather than sequence
             input_seq_layer = Input(shape=(self.n_flat_input_nodes,), name="input_seq_layer")
-            repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(input_seq_layer)
+
         else:
             input_seq_layer = Input(shape=(self.n_timesteps,), name="input_seq_layer")
 
@@ -1274,14 +1279,28 @@ class Seq2Seq(SavedModel):
             emb_seq_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')(input_seq_layer) #mask_zero=True,
             encoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=False, name='encoded_seq_layer')(emb_seq_layer)
             repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(encoded_seq_layer)
+
+        if self.flat_output:
+
+            decoded_seq_layer = Dense(output_dim=self.n_hidden_nodes, name='decoded_seq_layer', activation='sigmoid')(input_seq_layer)
+
+            output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='outcome_seq_layer')(input_seq_layer)#(decoded_seq_layer)
+
+            #output_seq_layer = Dense(output_dim=self.n_flat_input_nodes, activation='linear', name='outcome_seq_layer2')(output_seq_layer)#(decoded_seq_layer)
+
+            model = Model(input=input_seq_layer, output=output_seq_layer)
+
+            model.compile(loss="binary_crossentropy", optimizer='adam')
+        else:
+            repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(input_seq_layer)
         
-        decoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='decoded_seq_layer')(repeat_layer)
+            decoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='decoded_seq_layer')(repeat_layer)
 
-        output_seq_layer = TimeDistributed(Dense(output_dim=self.lexicon_size + 1, activation='softmax', name='outcome_seq_layer'))(decoded_seq_layer)
+            output_seq_layer = TimeDistributed(Dense(output_dim=self.lexicon_size + 1, activation='softmax', name='outcome_seq_layer'))(decoded_seq_layer)
 
-        model = Model(input=input_seq_layer, output=output_seq_layer)
+            model = Model(input=input_seq_layer, output=output_seq_layer)
 
-        model.compile(loss="sparse_categorical_crossentropy", optimizer='adam')
+            model.compile(loss="sparse_categorical_crossentropy", optimizer='adam')
 
         return model
     
@@ -1295,8 +1314,7 @@ class Seq2Seq(SavedModel):
                     self.n_timesteps = max([len(seq) for seq in seqs2])
                 else:
                     self.n_timesteps = max([len(seq) for seq in seqs1 + seqs2]) #if n_timesteps not given, set it to length of longest sequence
-            # self.embedded_input = embedded_input
-            # if not self.embedded_input and not self.flat_input:
+
             assert(lexicon_size is not None)
             self.lexicon_size = lexicon_size
             self.model = self.create_model()
@@ -1313,31 +1331,51 @@ class Seq2Seq(SavedModel):
             for batch_idx in range(0, len(seqs1), self.batch_size):
                 if self.flat_input:
                     batch_seqs1 = numpy.array(seqs1[batch_idx:batch_idx+self.batch_size])
+                    #batch_seqs1 = get_vector_batch(seqs1[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size+1)
                 else:
-                    batch_seqs1 = get_seq_batch(seqs1[batch_idx:batch_idx+self.batch_size], max_length=self.n_timesteps)
-                batch_seqs2 = get_seq_batch(seqs2[batch_idx:batch_idx+self.batch_size], padding='post', max_length=self.n_timesteps)
-                losses.append(self.model.train_on_batch(x=batch_seqs1, y=batch_seqs2[:,:,None]))
+                    batch_seqs1 = get_seq_batch(seqs1[batch_idx:batch_idx+self.batch_size], max_length=self.n_timesteps)[:,:,None]
+                if self.flat_output:
+                    #batch_seqs2 = numpy.array(seqs2[batch_idx:batch_idx+self.batch_size])
+                    batch_seqs2 = get_vector_batch(seqs2[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size+1)
+                else:
+                    batch_seqs2 = get_seq_batch(seqs2[batch_idx:batch_idx+self.batch_size], padding='post', max_length=self.n_timesteps)[:,:,None]
+                losses.append(self.model.train_on_batch(x=batch_seqs1, y=batch_seqs2))
                 if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
                     if self.verbose:
-                        print("loss: {:.3f}".format(numpy.mean(numpy.array(losses))))
+                        print("loss: {:.7f}".format(numpy.mean(numpy.array(losses))))
             if self.verbose:
-                print("loss: {:.3f}".format(numpy.mean(numpy.array(losses))))
+                print("loss: {:.7f}".format(numpy.mean(numpy.array(losses))))
             if save_to_filepath and self.filepath:
                 self.save()
         
-    def predict(self, seq1, seq2, pred_method='mean'):
+    def predict(self, seq1, seq2, pred_method='multiply'):
 
         '''right now this function only handles getting prob for one sequence pair'''
         if self.flat_input:
             seq1 = seq1[None]
         else:
             seq1 = get_seq_batch([seq1], max_length=self.n_timesteps)
-        seq2 = get_seq_batch([seq2], padding='post', max_length=self.n_timesteps)
+
         probs = self.model.predict_on_batch(seq1)[0]
-        probs = probs[numpy.arange(self.n_timesteps), seq2]
-        probs = probs[seq2 > 0]
-        if pred_method == 'mean':
+
+        if self.flat_output:
+            #import pdb;pdb.set_trace()
+            seq2 = get_vector_batch([seq2], vector_length=self.lexicon_size+1)
+            #prob = 1 - cosine(seq2, probs)
+            probs = probs[seq2[0].astype('bool')]
+
+        else:
+            seq2 = get_seq_batch([seq2], padding='post', max_length=self.n_timesteps)
+
+            probs = probs[numpy.arange(self.n_timesteps), seq2]
+            probs = probs[seq2 > 0]
+
+        if pred_method == 'multiply':
             prob = numpy.sum(numpy.log(probs))
+            #prob = numpy.multiply(probs)
+        if pred_method == 'mean':
+            #prob = numpy.sum(numpy.log(probs))
+            prob = numpy.mean(numpy.log(probs))
         elif pred_method == 'last':
             prob = numpy.log(probs[-1])
         elif pred_method == 'max':
