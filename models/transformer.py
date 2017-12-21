@@ -6,7 +6,7 @@ from itertools import *
 #from keras.preprocessing.sequence import pad_sequences
 
 #SKIPTHOUGHTS
-sys.path.append('skip-thoughts-master')
+'''sys.path.append('skip-thoughts-master')
 sys.path.append('../skip-thoughts-master')
 import skipthoughts
 reload(skipthoughts)
@@ -14,9 +14,9 @@ from training import vocab
 from training import train as encoder_train
 from training import tools as encoder_tools
 reload(encoder_tools)
-
+'''
 #load spacy model for nlp tools
-encoder = spacy.load('en')
+encoder = spacy.load('en_core_web_md')
 
 pos_tag_idxs = {'#': 1,'$': 2,"''": 3,'(': 4,')': 5,',': 6,'-LRB-': 7,'-PRB-': 8,'.': 9,':': 10,'ADD': 11,'AFX': 12,'BES': 13,'CC': 14,'CD': 15,'DT': 16,'EX': 17,
                 'FW': 18,'GW': 19,'HVS': 20,'HYPH': 21,'IN': 22,'JJ': 23,'JJR': 24,'JJS': 25,'LS': 26,'MD': 27,'NFP': 28,'NIL': 29,'NN': 30,'NNP': 31,'NNPS': 32,'NNS': 33,
@@ -40,10 +40,11 @@ def tokenize(seq, lowercase=True, recognize_ents=False, lemmatize=False, include
         seq = [ent_start_idxs[word_idx] if word_idx in ent_start_idxs else word
                 for word_idx, word in enumerate(seq) 
                     if (not word.ent_type_ or word_idx in ent_start_idxs)]
+    # Don't apply POS filtering to phrases (words with underscores)
     if include_tags: #fine-grained POS tags
-        seq = [word for word in seq if word.tag_ in include_tags]
+        seq = [word for word in seq if ("_" in word.string or word.tag_ in include_tags)]
     if include_pos: #coarse-grained POS tags
-        seq = [word for word in seq if word.pos_ in include_pos]
+        seq = [word for word in seq if ("_" in word.string or word.pos_ in include_pos)]
     if lemmatize:
         seq = [word.lemma_ if not word.string.startswith('ENT_') else word.string.strip() for word in seq]
     elif lowercase: #don't lowercase if token is an entity (entities will be of type span instead of token; or will be prefixed with 'ENT_' if already transformed to types)
@@ -275,6 +276,76 @@ def get_word_pairs(tok_seq1, tok_seq2):
     pairs = [(word1, word2) for word1 in tok_seq1 for word2 in tok_seq2]
     return pairs
 
+# def get_adj_sent_pairs(seqs, tokenized=False, max_distance=1, reverse=False, max_sent_length=25): #segment_clauses=False,
+#     '''sequences is a list of sentences in each sequence, either tokenized or string;
+#     max distance indicates clause window within which pairs will be found
+#     (e.g. when max_distance = 2, both neighboring clauses and those separated by one other clause will be paired'''
+#     pairs = []
+#     for seq in seqs:
+#         # if type(seq) in (str, unicode):
+#         #     seq = segment(seq, clauses=segment_clauses)
+#         # len_seq_before = len(seq)
+#         # seq_before = seq
+#         if tokenized:
+#             seq = [sent for sent in seq if len(sent) and len(sent) <= max_sent_length] #filter empty clauses
+#         # len_seq_after = len(seq)
+#         # if len_seq_before > len_seq_after:
+#         #     print("before:", seq_before)
+#         #     print("after:", seq)
+#         for sent_idx in range(len(seq) - 1):
+#             sent1 = seq[sent_idx]
+#             # if type(sent1) in (str, unicode):
+#             #     len_sent1 = len(tokenize(sent1))
+#             # else:
+#             # len_sent1 = len(sent1)
+#             # if len_sent1 and len_sent1 <= max_sent_length:
+#             for window_idx in range(max_distance):
+#                 if sent_idx + window_idx == len(seq) - 1:
+#                     break
+#                 sent2 = seq[sent_idx + window_idx + 1]
+#                 # if type(sent2) in (str, unicode):
+#                 #     len_sent2 = len(tokenize(sent2))
+#                 # else:
+#                 #     len_sent2 = len(sent2)
+#                 # if len_sent2 and len_sent2 <= max_sent_length: #filter sentences that are too long
+#                 if reverse:
+#                     pairs.append((sent2, sent1)) #if reverse=True, reverse order of sentence pair
+#                 else:
+#                     pairs.append((sent1, sent2))
+#     return pairs
+
+# def get_subseqs(seqs, segment_clauses=False, distance=1, max_sent_length=25):
+#     '''sequences can be string or transformer into numbers;
+#     if segment clauses=True, split sequences by clause boundaries rather than sentence boundaries,
+#     max distance indicates clause window within which pairs will be found
+#     (e.g. when max_distance = 2, both neighboring clauses and those separated by one other clause will be paired'''
+#     subseqs = []
+#     for seq in seqs:
+#         if type(seq) in (str, unicode):
+#             seq = segment(seq, clauses=segment_clauses)
+#         for sent_idx in range(len(seq) - 1):
+
+#             sent1 = seq[sent_idx]
+#             if type(sent1) in (str, unicode):
+#                 len_sent1 = len(tokenize(sent1))
+#             else:
+#                 len_sent1 = len(sent1)
+#             if len_sent1 and len_sent1 <= max_sent_length:
+#                 for window_idx in range(max_distance):
+#                     if sent_idx + window_idx == len(seq) - 1:
+#                         break
+#                     sent2 = seq[sent_idx + window_idx + 1]
+#                     if type(sent2) in (str, unicode):
+#                         len_sent2 = len(tokenize(sent2))
+#                     else:
+#                         len_sent2 = len(sent2)
+#                     if len_sent2 and len_sent2 <= max_sent_length: #filter sentences that are too long
+#                         if reverse:
+#                             pairs.append((sent2, sent1)) #if reverse=True, reverse order of sentence pair
+#                         else:
+#                             pairs.append((sent1, sent2))
+#     return pairs
+
 def get_adj_sent_pairs(seqs, segment_clauses=False, max_distance=1, reverse=False, max_sent_length=25):
     '''sequences can be string or transformer into numbers;
     if segment clauses=True, split sequences by clause boundaries rather than sentence boundaries,
@@ -316,39 +387,6 @@ def randomize_pairs(pairs):
     random_pairs = [(seqs[idx1], seqs[idx2]) for idx1, idx2 in random_idx_pairs]
     return random_pairs
 
-# def segment_into_clauses(seq):
-#     '''applies a set of heuristics to segment a sequence (one or more sentences) into clauses
-#     the clauses are those that would useful for splitting causal events, so not all types clauses will be recognized'''
-#     clauses = []
-#     sents = segment(seq)
-#     for sent in sents:
-#         sent = encoder(sent)
-#         clause_bound_idxs = []
-#         for word in sent:
-#             if word.dep_ in ('advcl','conj','pcomp')\
-#             and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
-#                 if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
-#                     clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
-#                 if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
-#                     clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
-#                 clause_bound_idxs.append(word.right_edge.i + 1)
-#         if clause_bound_idxs and clause_bound_idxs[0] == 1:
-#             clause_bound_idxs[0] = 0 #merge first word in first clause if split out
-#         if not clause_bound_idxs or clause_bound_idxs[0]:
-#             clause_bound_idxs.insert(0, 0)
-#         if clause_bound_idxs[-1] < len(sent):
-#             clause_bound_idxs.append(len(sent)) #set clause boundary at end of sentence
-#         sent_clauses = []
-#         for idx,next_idx in zip(clause_bound_idxs, clause_bound_idxs[1:]):
-#             clause = sent[idx:next_idx]#.string
-#             if sent_clauses and len(clause) == 1 and clause[-1].pos_ == 'PUNCT':  #if clause is punctuation, append it to previous clause
-#                 sent_clauses[-1] = sent_clauses[-1] + clause.string
-#             else:
-#                 sent_clauses.append(clause.string)
-#         clauses.extend(sent_clauses)
-#     return clauses
-
-'''10/19/18: New clause segmentation function. Main differences is that only verbs are considered for segmentation (which avoids segmenting conjunctions of nouns)'''
 def segment_into_clauses(seq):
     '''applies a set of heuristics to segment a sequence (one or more sentences) into clauses
     the clauses are those that would useful for splitting causal events, so not all types clauses will be recognized'''
@@ -357,18 +395,14 @@ def segment_into_clauses(seq):
     for sent in sents:
         sent = encoder(sent)
         clause_bound_idxs = []
-        verb_found = False
         for word in sent:
-            if word.pos_ == 'VERB': #, 'ROOT')\
-                if word.dep_ in ('advcl','conj','pcomp', 'relcl')\
-                    and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
-                    if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
-                        clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
-                    if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
-                        if verb_found or word.left_edge.i == 0: #don't segment any previously detected clauses that don't contain a verb
-                            clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
-                    clause_bound_idxs.append(word.right_edge.i + 1)
-                verb_found = True
+            if word.dep_ in ('advcl','conj','pcomp')\
+            and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
+                if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
+                    clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
+                if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
+                    clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
+                clause_bound_idxs.append(word.right_edge.i + 1)
         if clause_bound_idxs and clause_bound_idxs[0] == 1:
             clause_bound_idxs[0] = 0 #merge first word in first clause if split out
         if not clause_bound_idxs or clause_bound_idxs[0]:
@@ -385,6 +419,63 @@ def segment_into_clauses(seq):
         clauses.extend(sent_clauses)
     return clauses
 
+# '''10/19/18: New clause segmentation function. Main differences is that only verbs are considered for segmentation (which avoids segmenting conjunctions of nouns)'''
+# def segment_into_clauses(seq):
+#     '''applies a set of heuristics to segment a sequence (one or more sentences) into clauses
+#     the clauses are those that would useful for splitting causal events, so not all types clauses will be recognized'''
+#     clauses = []
+#     sents = segment(seq)
+#     for sent in sents:
+#         sent = encoder(sent)
+#         clause_bound_idxs = []
+#         verb_found = False
+#         for word in sent:
+#             if word.pos_ == 'VERB': #, 'ROOT')\
+#                 if word.dep_ in ('advcl','conj','pcomp', 'relcl')\
+#                     and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
+#                     if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
+#                         clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
+#                     if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
+#                         if verb_found or word.left_edge.i == 0: #don't segment any previously detected clauses that don't contain a verb
+#                             clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
+#                     clause_bound_idxs.append(word.right_edge.i + 1)
+#                 verb_found = True
+#         if clause_bound_idxs and clause_bound_idxs[0] == 1:
+#             clause_bound_idxs[0] = 0 #merge first word in first clause if split out
+#         if not clause_bound_idxs or clause_bound_idxs[0]:
+#             clause_bound_idxs.insert(0, 0)
+#         if clause_bound_idxs[-1] < len(sent):
+#             clause_bound_idxs.append(len(sent)) #set clause boundary at end of sentence
+#         sent_clauses = []
+#         for idx,next_idx in zip(clause_bound_idxs, clause_bound_idxs[1:]):
+#             clause = sent[idx:next_idx]#.string
+#             if sent_clauses and len(clause) == 1 and clause[-1].pos_ == 'PUNCT':  #if clause is punctuation, append it to previous clause
+#                 sent_clauses[-1] = sent_clauses[-1] + clause.string
+#             else:
+#                 sent_clauses.append(clause.string)
+#         clauses.extend(sent_clauses)
+#     return clauses
+
+def combine_phrases_in_seq(seq, phrases, lemmatized=False): 
+    phrased_seq = []
+    seq = tokenize(seq, lowercase=False)
+    idx = 0
+    while idx < len(seq):
+        if lemmatized: #if phrases are lemmatized; if so, lemmatize sequence when tokenizing
+            possible_phrase = [word.lemma_ for word in encoder(" ".join(seq[idx:idx + 3]))]
+        else:
+            possible_phrase = seq[idx:idx + 3]
+        if "_".join(possible_phrase) in phrases: #first try matching 3 word phrase
+            phrased_seq.append("_".join(possible_phrase))
+            idx += 3
+        elif "_".join(possible_phrase[:-1]) in phrases: #then back off to 2 words
+            phrased_seq.append("_".join(possible_phrase[:-1]))
+            idx += 2
+        else:
+            phrased_seq.append(seq[idx]) #just add word if word not part of phrase
+            idx += 1
+    phrased_seq = " ".join(phrased_seq) #return as string
+    return phrased_seq
 
 def load_seqs(filepath, memmap=False, shape=None):
     if memmap:
@@ -399,14 +490,17 @@ def load_seqs(filepath, memmap=False, shape=None):
 class SequenceTransformer():
     def __init__(self, min_freq=1, lexicon=[], lemmatize=False, prepend_start=False,
                 include_tags=[], verbose=1, unk_word=u"<UNK>", word_embs=None,
-                use_spacy_embs=False, generalize_ents=False, filepath=None): #reduce_emb_mode=None, 
+                use_spacy_embs=False, generalize_ents=False, phrases=None, filepath=None): #reduce_emb_mode=None, 
         self.unk_word = unk_word #string representation for unknown words in lexicon
         self.word_embs = word_embs #use existing word embeddings if given
-        if self.word_embs:
-            self.n_embedding_nodes = self.word_embs.vector_size
         self.use_spacy_embs = use_spacy_embs
-        if self.use_spacy_embs:
+        if self.word_embs and self.use_spacy_embs:
+            self.n_embedding_nodes = self.word_embs.vector_size + encoder.vocab.vectors_length
+        elif self.word_embs:
+            self.n_embedding_nodes = self.word_embs.vector_size
+        elif self.use_spacy_embs:
             self.n_embedding_nodes = encoder.vocab.vectors_length
+        self.phrases = phrases
         self.lexicon = lexicon
         self.lexicon_size = None
         self.lemmatize = lemmatize
@@ -416,11 +510,12 @@ class SequenceTransformer():
         self.verbose = verbose
         self.generalize_ents = generalize_ents #specify if named entities should be replaced with generic labels
         self.ent_counts = {}
+        self.filtered_ent_counts = {}
         self.filepath = filepath
         self.prepend_start = prepend_start
         self.ent_count_sample_threshold = None
         if self.verbose:
-            print("Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embs')})
+            print("Created transformer:", {param:value for param, value in self.__dict__.items() if param not in ('lexicon', 'word_embs', 'phrases')})
         if self.filepath: #if filepath given, save transformer
             self.save()
 
@@ -439,8 +534,9 @@ class SequenceTransformer():
                     else:
                         self.ent_counts[ent_type][ent] += 1
                 seq = self.replace_ents_in_seq(seq)
+            if hasattr(self, 'phrases') and self.phrases is not None: #add given phrases to word counts
+                seq = combine_phrases_in_seq(seq, self.phrases, lemmatized=self.lemmatize) #if sequences will be lemmatized, assume that given phrases are lemmatized
             seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags, prepend_start=self.prepend_start)
-
             for word in seq:
                 if word not in self.word_counts:
                     self.word_counts[word] = 1
@@ -461,6 +557,8 @@ class SequenceTransformer():
             self.filtered_ent_counts = {ent_type:{ent:count for ent,count in self.ent_counts[ent_type].items() #filter by frequency
                                                     if count >= ent_min_freqs[ent_type]} for ent_type in self.ent_counts}
 
+        if hasattr(self, 'phrases') and self.phrases is not None:
+            self.phrases = set([phrase for phrase in list(self.phrases) if phrase in self.lexicon]) #only keep phrases that are in the lexicon
         if self.verbose:
             print("added lexicon of", self.lexicon_size, "words with frequency >=", self.min_freq)
         if self.filepath: #if filepath given, save transformer
@@ -476,15 +574,33 @@ class SequenceTransformer():
         return seq
 
     def tok_seq_to_nums(self, seq):
+        assert(type(seq) == list)
         seq = [self.lexicon[word] if word in self.lexicon else 1 if word else 0
                 for word in seq] #map each token in list of tokens to an index; if word is None, replace with 0; if word is not None but not in lexicon, replace with 1
         return seq
+
+    def tok_seqs_to_nums(self, seqs):
+        assert(type(seqs[0]) == list)
+        num_seqs = []
+        for seq in seqs:
+            seq = self.tok_seq_to_nums(seq)
+            if not seq:
+                seq.append(1) #if seq is blank, represent with single unknown word
+            num_seqs.append(seq)
+        assert(len(seqs) == len(num_seqs))
+        return num_seqs
+
+    def text_to_tok_seqs(self, seqs):
+        seqs = [tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags, prepend_start=self.prepend_start) for seq in seqs]
+        return seqs
     
     def text_to_nums(self, seqs):
         '''tokenize string sequences and convert to list of word indices'''
         #import pdb;pdb.set_trace()
         num_seqs = []
         for seq in seqs:
+            if hasattr(self, 'phrases') and self.phrases is not None:
+                seq = combine_phrases_in_seq(seq, self.phrases, lemmatized=self.lemmatize)
             seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags, prepend_start=self.prepend_start)
             seq = self.tok_seq_to_nums(seq)
             if not seq:
@@ -493,33 +609,48 @@ class SequenceTransformer():
         assert(len(seqs) == len(num_seqs))
         return num_seqs
 
-    def text_to_embs(self, seqs, reduce_emb_mode=None):#, word_embs=None):
-        '''tokenize string sequences and convert to word embeddings; if 'spacy' is given for word embeddings, encode directly through spacy API;
-        if separate word embeddings given, use these embeddings; otherwise use existing self.word_embs'''
-        # if not word_embs and not self.use_spacy_embs:
-        #     word_embs = self.word_embs
-        #     n_embedding_nodes = self.n_embedding_nodes
-        # else:
-        # if self.use_spacy_embs:
-        #     n_embedding_nodes = encoder.vocab.vectors_length
-        # else:
-        #     n_embedding_nodes = word_embs.vector_size
-        #import pdb;pdb.set_trace()
-        embedded_seqs = []
-        for seq in seqs:
-            seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags, prepend_start=self.prepend_start)
-            if not seq:
-                seq = numpy.zeros((1, self.n_embedding_nodes)) #seq has no words
+    def tok_seq_to_embs(self, seq, reduce_emb_mode=None):
+        assert(type(seq) == list)
+        if not seq:
+            seq = numpy.zeros((1, self.n_embedding_nodes)) #seq has no words
+        else:
+            if hasattr(self, 'phrases') and self.phrases is not None:
+                seq = [word for token in seq for word in token.split("_")] #join phrases with white space so each word in phrase is given an embedding
+            if self.use_spacy_embs and self.word_embs is not None: #concatenate spacy vectors and vectors for given word embeddings
+                seq = numpy.array([numpy.concatenate([self.word_embs[word] if word in self.word_embs else numpy.zeros((self.word_embs.vector_size)),
+                                                    encoder(word).vector], axis=-1) for word in seq])
             elif self.use_spacy_embs:
                 seq = numpy.array([encoder(word).vector for word in seq])
-            else:
+            elif self.word_embs is not None:
                 seq = numpy.array([self.word_embs[word] if word in self.word_embs else numpy.zeros((self.n_embedding_nodes))
-                                    for word in seq])
-            if reduce_emb_mode: #combine embeddings of each sequence by averaging or summing them
-                if reduce_emb_mode == 'mean':
-                    seq = numpy.mean(seq, axis=0)
-                elif reduce_emb_mode == 'sum':
-                    seq = numpy.sum(seq, axis=0)
+                                for word in seq])
+        if reduce_emb_mode: #combine embeddings of each sequence by averaging or summing them
+            if reduce_emb_mode == 'mean':
+                seq = numpy.mean(seq, axis=0)
+            elif reduce_emb_mode == 'sum':
+                seq = numpy.sum(seq, axis=0)
+        return seq
+
+    def tok_seqs_to_embs(self, seqs, reduce_emb_mode=None):
+        assert(type(seqs[0]) == list)
+        embedded_seqs = []
+        for seq in seqs:
+            seq = self.tok_seq_to_embs(seq, reduce_emb_mode=reduce_emb_mode)
+            embedded_seqs.append(seq)
+        assert(len(seqs) == len(embedded_seqs))
+        if reduce_emb_mode:
+            embedded_seqs = numpy.array(embedded_seqs)
+        return embedded_seqs
+
+    def text_to_embs(self, seqs, reduce_emb_mode=None):
+        '''tokenize string sequences and convert to word embeddings; if 'spacy' is given for word embeddings, encode directly through spacy API;
+        if separate word embeddings given, use these embeddings; otherwise use existing self.word_embs'''
+        embedded_seqs = []
+        for seq in seqs:
+            if hasattr(self, 'phrases') and self.phrases is not None:
+                seq = combine_phrases_in_seq(seq, self.phrases, lemmatized=self.lemmatize) #if sequences will be lemmatized, assume that given phrases are lemmatized
+            seq = tokenize(seq, lemmatize=self.lemmatize, include_tags=self.include_tags, prepend_start=self.prepend_start)
+            seq = self.tok_seq_to_embs(seq, reduce_emb_mode=reduce_emb_mode)
             embedded_seqs.append(seq)
         assert(len(seqs) == len(embedded_seqs))
         if reduce_emb_mode:
@@ -568,10 +699,6 @@ class SequenceTransformer():
         return decoded_seqs
             
     def nums_to_embs(self, seqs, reduce_emb_mode=None):#, word_embs=None):
-        # #convert word indices to vectors
-        # if not word_embs: #if separate word embeddings given, use these embeddings; otherwise use existing self.word_embs
-        #     word_embs = self.word_embs
-        # n_embedding_nodes = word_embs.vector_size
         embedded_seqs = []
         for seq in seqs:
             #convert to vectors rather than indices - if word not in lexicon represent with all zeros
@@ -589,14 +716,6 @@ class SequenceTransformer():
         if reduce_emb_mode:
             embedded_seqs = numpy.array(embedded_seqs)
         return embedded_seqs
-            
-    # def pad_nums(self, seqs, max_length=None):
-    #     #import pdb;pdb.set_trace()
-    #     if not max_length:
-    #         max_length = max([len(seq) for seq in seqs])
-
-    #     seqs = pad_sequences(sequences=seqs, maxlen=max_length)
-    #     return seqs
 
     def pad_embs(self, seqs, max_length=None):
         #import pdb;pdb.set_trace()
@@ -656,7 +775,7 @@ class SequenceTransformer():
         return transformer
 
 
-class SkipthoughtsTransformer(SequenceTransformer):
+'''class SkipthoughtsTransformer(SequenceTransformer):
     def __init__(self, encoder_module=skipthoughts, filepath=None, encoder_dim=4800, verbose=True):
         self.encoder_module = encoder_module
         self.filepath = filepath
@@ -719,7 +838,7 @@ class SkipthoughtsTransformer(SequenceTransformer):
         print('loaded skipthoughts encoder from', filepath)
 
         return transformer
-
+'''
 
 class WordEmbeddings():
     def __init__(self, filepath):#, embs=None, lexicon=None):
