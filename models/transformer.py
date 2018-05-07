@@ -6,7 +6,7 @@ from itertools import *
 #from keras.preprocessing.sequence import pad_sequences
 
 #SKIPTHOUGHTS
-'''sys.path.append('skip-thoughts-master')
+sys.path.append('skip-thoughts-master')
 sys.path.append('../skip-thoughts-master')
 import skipthoughts
 reload(skipthoughts)
@@ -14,7 +14,7 @@ from training import vocab
 from training import train as encoder_train
 from training import tools as encoder_tools
 reload(encoder_tools)
-'''
+
 #load spacy model for nlp tools
 encoder = spacy.load('en_core_web_md')
 
@@ -775,7 +775,7 @@ class SequenceTransformer():
         return transformer
 
 
-'''class SkipthoughtsTransformer(SequenceTransformer):
+class SkipthoughtsTransformer(SequenceTransformer):
     def __init__(self, encoder_module=skipthoughts, filepath=None, encoder_dim=4800, verbose=True):
         self.encoder_module = encoder_module
         self.filepath = filepath
@@ -798,7 +798,7 @@ class SequenceTransformer():
             seq_length = 1
         seqs_shape = (len(seqs), self.encoder_dim)
         if seqs_filepath:
-            embedded_seqs = numpy.memmap(seqs_filepath, dtype='float64',
+            embedded_seqs = numpy.memmap(seqs_filepath, dtype='float',
                                         mode='w+', shape=seqs_shape)
         else:
             embedded_seqs = numpy.zeros(seqs_shape)
@@ -818,27 +818,26 @@ class SequenceTransformer():
             
         return embedded_seqs
 
-    @classmethod
-    def load(cls, filepath='../skip-thoughts-master', word_embs='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
-        if pretrained:
-            #filepaths are hard-coded for pre-trained skipthought model
-            encoder_module = skipthoughts
-            sent_encoder = encoder_module.load_model(path_to_models=filepath)
+    # @classmethod
+    # def load(cls, filepath='../skip-thoughts-master', word_embs='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
+        # if pretrained:
+        #     #filepaths are hard-coded for pre-trained skipthought model
+        #     encoder_module = skipthoughts
+        #     sent_encoder = encoder_module.load_model(path_to_models=filepath)
 
-        else:
-            encoder_module = encoder_tools
-            sent_encoder = encoder_module.load_model(embed_map=word_embs, 
-                                                     path_to_model=filepath + '/encoder', 
-                                                     path_to_dictionary=filepath + '/lexicon')
+        # else:
+        #     encoder_module = encoder_tools
+        #     sent_encoder = encoder_module.load_model(embed_map=word_embs, 
+        #                                              path_to_model=filepath + '/encoder', 
+        #                                              path_to_dictionary=filepath + '/lexicon')
             
-        transformer = SkipthoughtsTransformer(encoder_module=encoder_module, 
-                                              encoder=sent_encoder,
-                                              encoder_dim=n_nodes, verbose=verbose)
+        # transformer = SkipthoughtsTransformer(encoder_module=encoder_module, 
+        #                                       encoder_dim=n_nodes, verbose=verbose)
 
-        print('loaded skipthoughts encoder from', filepath)
+        # print('loaded skipthoughts encoder from', filepath)
 
-        return transformer
-'''
+        # return transformer
+
 
 class WordEmbeddings():
     def __init__(self, filepath):#, embs=None, lexicon=None):
