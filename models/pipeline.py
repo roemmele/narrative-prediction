@@ -218,13 +218,7 @@ class MLPBinaryPipeline(Pipeline):
         #embedded_input = True if (self.transformer.word_embeddings or self.transformer.use_spacy_embs) else False
         if not self.transformer.lexicon:
             self.transformer.make_lexicon(seqs)
-        # if embedded_input:
-        #     '''TO-DO: NEED TO ENSURE SEQUENCES WITH ALL 0 VECTORS AREN'T GETTING THROUGH'''
-        #     true_pairs = [self.transformer.text_to_embs(pair) for pair in true_pairs]
-        #     false_pairs = [self.transformer.text_to_embs(pair) for pair in false_pairs]
-        # else:
         true_pairs = self.get_true_pairs(seqs, max_clause_length=max_clause_length)
-        #false_pairs = [self.transformer.text_to_nums(pair) for pair in false_pairs]
         reversed_pairs = reverse_pairs(true_pairs)
         random_pairs = randomize_pairs(true_pairs)# + randomize_pairs(true_pairs)
         false_pairs = random_pairs + reversed_pairs
@@ -236,9 +230,6 @@ class MLPBinaryPipeline(Pipeline):
                             lexicon_size=self.transformer.lexicon_size, n_epochs=n_epochs) #embedded_input=embedded_input,
     def predict(self, seq1, seq2):
         '''return a total score for the causal relatedness between seq1 and seq2'''
-        # if self.classifier.embedded_input:
-        #     seq1, seq2 = self.transformer.pad_embs(self.transformer.text_to_embs([seq1, seq2]), max_length=self.classifier.n_timesteps)
-        # else:
         seq1, seq2 = self.transformer.num_seqs_to_bow(self.transformer.text_to_nums([seq1, seq2]))
         prob = self.classifier.predict(seq1=seq1[None], seq2=seq2[None])
         return prob
@@ -320,8 +311,6 @@ class RNNBinaryPipeline(Pipeline):
                 self.classifier.fit(seqs1=seqs1_chunk, seqs2=seqs2_chunk, 
                                     labels=labels_chunk, n_epochs=1, save_to_filepath=False)
 
-                #print("processed", len(seqs1_chunk), "sequence pairs...")
-
                 if eval_fn:
                     if not hasattr(self, 'best_accuracy'):
                         self.best_accuracy = -numpy.inf
@@ -355,21 +344,20 @@ class RNNBinaryPipeline(Pipeline):
         probs = numpy.array(probs)
         return probs
 
-class Seq2SeqPipeline(Pipeline):
+class EncoderDecoderPipeline(Pipeline):
 
     def fit(self, seqs1, seqs2, max_length=25, n_epochs=1, eval_fn=None, eval_freq=1, verbose=True): 
 
         if not self.transformer.lexicon:
             self.transformer.make_lexicon(seqs1 + seqs2)
 
-        if self.classifier.flat_input and self.classifier.embedded_input:
-            if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
-                seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
-            elif self.classifier.embedded_input:
-                seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
-        else:
-            seqs1 = self.transformer.text_to_nums(seqs1)
-
+        # if self.classifier.flat_input and self.classifier.embedded_input:
+        #     if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
+        #         seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
+        #     elif self.classifier.embedded_input:
+        #         seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
+        # else:
+        seqs1 = self.transformer.text_to_nums(seqs1)
         seqs2 = self.transformer.text_to_nums(seqs2)
 
         assert(len(seqs1) == len(seqs2))
@@ -380,8 +368,6 @@ class Seq2SeqPipeline(Pipeline):
                     print("EPOCH:", epoch + 1)
             if verbose:
                 print("training on", len(seqs1), "sequence pairs")
-            # print("training on", len(seq_pairs), "sequence pairs (sim model =", True if sim_model else False, ", segment clauses =", segment_clauses, ", max clause distance =", max_clause_distance,
-            #     ", max clause length =", max_clause_length, ", reverse =", reverse, ", drop words =", drop_words, ", n samples per seq =", n_samples_per_seq, ")")
             chunk_size = int(numpy.ceil(len(seqs1) * 1. / eval_freq))
             for chunk_idx in range(0, len(seqs1), chunk_size):
                 self.classifier.fit(seqs1[chunk_idx:chunk_idx + chunk_size], seqs2[chunk_idx:chunk_idx + chunk_size], 
@@ -391,7 +377,6 @@ class Seq2SeqPipeline(Pipeline):
                 if eval_fn:
                     if not hasattr(self, 'best_accuracy'):
                         self.best_accuracy = -numpy.inf
-                    #import pdb;pdb.set_trace()
                     accuracy = eval_fn(self)
                     if accuracy >= self.best_accuracy:
                         self.best_accuracy = accuracy
@@ -400,21 +385,20 @@ class Seq2SeqPipeline(Pipeline):
                 elif self.classifier.filepath:
                     self.classifier.save()
 
-    def predict(self, seqs1, seqs2, pred_method='multiply', unigram_probs=None):
+    def predict(self, seqs1, seqs2):
         '''return a total score for the prob that seq2 follows seq1'''
-        if self.classifier.flat_input and self.classifier.embedded_input:
-            if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
-                seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
-            else:
-                seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
-        else:
-            seqs1 = self.transformer.text_to_nums(seqs1)
-
+        # if self.classifier.flat_input and self.classifier.embedded_input:
+        #     if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
+        #         seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
+        #     else:
+        #         seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
+        # else:
+        seqs1 = self.transformer.text_to_nums(seqs1)
         seqs2 = self.transformer.text_to_nums(seqs2)
 
         probs = []
         for seq1, seq2 in zip(seqs1, seqs2):
-            prob = self.classifier.predict(seq1=seq1, seq2=seq2, pred_method=pred_method, unigram_probs=unigram_probs)
+            prob = self.classifier.predict(seq1=seq1, seq2=seq2)
             probs.append(prob)
 
         probs = numpy.array(probs)
@@ -461,108 +445,6 @@ class ClassifierPipeline(Pipeline):
         else:
             seqs = self.transformer.text_to_nums(seqs)
         return self.classifier.predict(seqs)
-
-# class RNNClassifierPipeline():
-#     def fit(self, seqs, labels, n_epochs=1):
-        
-#         if not self.transformer.lexicon:
-#             self.transformer.make_lexicon(seqs)
-        
-#         seqs = self.transformer.text_to_nums(seqs)
-#         self.classifier.fit(seqs, labels, lexicon_size=self.transformer.lexicon_size, n_epochs=n_epochs)
-#     def predict(self, seqs):
-#         seqs = self.transformer.text_to_nums(seqs)
-#         return self.classifier.predict(seqs)
-
-
-# class SeqBinaryPipeline(Pipeline):
-#     # def __init__(self, transformer, classifier):
-#     #     Pipeline.__init__(self, transformer, classifier)
-#     #     self.use_skipthoughts = True if self.transformer.__class__.__name__ == 'SkipthoughtsTransformer' else False
-#     def fit(self, input_seqs, output_seqs, neg_output_seqs, input_seqs_filepath, output_seqs_filepath, neg_output_seqs_filepath, output_word_embeddings=None, n_epochs=10, n_chunks=7):
-#         n_neg_per_seq = len(neg_output_seqs[0])
-#         if not self.use_skipthoughts:
-#             if not self.transformer.lexicon:
-#                 self.transformer.make_lexicon(seqs=[" ".join(input_seq + [output_seq]) for input_seq, output_seq in\
-#                                                                                       zip(input_seqs, output_seqs)])
-#         if not os.path.exists(neg_output_seqs_filepath) or not neg_output_seqs_filepath:
-#             if self.use_skipthoughts:
-#                 # encode_skipthought_seqs(neg_seqs, encoder_module, sent_encoder, 
-#                 #                         encoder_dim, memmap=True, filepath=neg_seqs_filepath)
-#                 neg_output_seqs = self.transformer.text_to_embs(neg_output_seqs, filepath=neg_output_seqs_filepath)
-#             else:
-#                 neg_output_seqs = numpy.array([self.transformer.text_to_embs(seqs=seqs, word_embeddings=output_word_embeddings) for seqs in neg_output_seqs])
-#                 numpy.save(neg_output_seqs_filepath, neg_output_seqs)
-#         if self.use_skipthoughts:
-#             neg_output_seqs = numpy.memmap(neg_output_seqs_filepath, dtype='float64', mode='r',
-#                                     shape=(len(input_seqs), n_neg_per_seq, self.transformer.encoder_dim))
-#         else:
-#             neg_output_seqs = numpy.load(neg_output_seqs_filepath, mmap_mode='r') #load neg seqs from mem-mapped file
-    
-#         if not os.path.exists(input_seqs_filepath):
-#             if self.use_skipthoughts:
-#                 # encode_skipthought_seqs(input_seqs, encoder_module, sent_encoder, 
-#                 #                                      encoder_dim, memmap=True, filepath=input_seqs_filepath)
-#                 # encode_skipthought_seqs(output_seqs, encoder_module, sent_encoder, 
-#                 #                                       encoder_dim, memmap=True, filepath=output_seqs_filepath)
-#                 input_seqs = self.transformer.text_to_embs(input_seqs, input_seqs_filepath)
-#             else:
-#                 input_seqs = numpy.array([self.transformer.text_to_embs(seqs=seqs) for seqs in input_seqs])
-#                 numpy.save(input_seqs_filepath, input_seqs)
-
-#         if not os.path.exists(output_seqs_filepath):
-#             if self.use_skipthoughts:
-#                 output_seqs = self.transformer.text_to_embs(output_seqs, output_seqs_filepath)
-#             else:
-#                 output_seqs = numpy.array(self.transformer.text_to_embs(seqs=output_seqs, word_embeddings=output_word_embeddings))
-#                 numpy.save(output_seqs_filepath, output_seqs)
-
-#         if self.use_skipthoughts:
-#             input_seqs = numpy.memmap(input_seqs_filepath, dtype='float64', mode='r',
-#                                       shape=(len(input_seqs), self.classifier.context_size, self.transformer.encoder_dim))
-#             output_seqs = numpy.memmap(output_seqs_filepath, dtype='float64', mode='r',
-#                                       shape=(len(output_seqs), self.transformer.encoder_dim))
-#         else:
-#             #load seqs from mem-mapped file
-#             input_seqs = numpy.load(input_seqs_filepath, mmap_mode='r')
-#             output_seqs = numpy.load(output_seqs_filepath, mmap_mode='r')
-        
-#         print("added", len(input_seqs), "positive examples")
-#         print("added", len(input_seqs) * n_neg_per_seq, "negative examples")
-#         print("examples divided into", n_chunks, "chunks for training")
-
-#                 #import pdb;pdb.set_trace()
-#         seqs_per_chunk = len(input_seqs) / n_chunks
-#         for epoch in range(n_epochs):
-#             print("TRAINING EPOCH {}/{}".format(epoch + 1, n_epochs))
-#             for chunk_idx in range(n_chunks):
-#                 chunk_input_seqs = input_seqs[chunk_idx * seqs_per_chunk: (chunk_idx + 1) * seqs_per_chunk]
-#                 chunk_output_seqs = output_seqs[chunk_idx * seqs_per_chunk: (chunk_idx + 1) * seqs_per_chunk]
-#                 chunk_neg_output_seqs = neg_output_seqs[chunk_idx * seqs_per_chunk: (chunk_idx + 1) * seqs_per_chunk]
-#                 chunk_labels = numpy.concatenate([numpy.ones(len(chunk_input_seqs)), numpy.zeros(chunk_neg_output_seqs.shape[0] * chunk_neg_output_seqs.shape[1])])
-
-#                 chunk_input_seqs = numpy.concatenate([chunk_input_seqs, chunk_input_seqs.repeat(n_neg_per_seq, axis=0)])
-#                 chunk_output_seqs = numpy.concatenate([chunk_output_seqs, chunk_neg_output_seqs.reshape(-1, chunk_neg_output_seqs.shape[-1])]) #add neg output seqs to positive output seqs
-
-#                 self.classifier.fit(input_seqs=chunk_input_seqs, output_seqs=chunk_output_seqs, labels=chunk_labels)
-#     def predict(self, input_seq, output_seq):
-
-#         if self.use_skipthoughts:
-#             input_seq = self.transformer.text_to_embs(input_seqs)
-#             output_seq = self.transformer.text_to_embs(output_seqs)
-#         else:
-#             input_seq = numpy.array(self.transformer.text_to_embs(seqs=input_seq))
-#             output_seq = numpy.array(self.transformer.text_to_embs(seqs=[output_seq]))[0]
-        
-#         #import pdb;pdb.set_trace()
-#         prob = self.classifier.predict(input_seq, output_seq)
-#         return prob
-
-#     @classmethod
-#     def load(cls, filepath, word_embeddings):
-#         pipeline = Pipeline.load(filepath)
-#         pipeline.transformer.word_embeddings = word_embeddings
-#         return pipeline
 
 class EmbeddingSimilarityPipeline(Pipeline):
     def predict(self, seqs1, seqs2, use_max_word=False):

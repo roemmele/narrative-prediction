@@ -405,12 +405,9 @@ class RNNLM(SavedModel):
             if not hasattr(self, 'sample_words') or not self.sample_words:
                 self.sample_words = init_sample_words(temp)
             next_words = self.sample_words(p_next_words, temp)
-            #next_words = numpy.array([self.sample_word(p_next_word, n_best, temp)[0] for p_next_word in p_next_words])
         else:
-            #next_words = numpy.array([numpy.argmax(p_next_word) for p_next_word in p_next_words])
             next_words = numpy.argmax(p_next_words, axis=1)[:,None]
 
-        #p_next_words = p_next_words[numpy.arange(len(p_next_words)), next_words]
         p_next_words = p_next_words[numpy.arange(len(p_next_words))[:,None], next_words]
 
         #for right now samples will always be size 1
@@ -430,15 +427,6 @@ class RNNLM(SavedModel):
         if seq[-1] == 0:
             return True
         return False
-    
-    # def get_best_sents(self, seqs, p_sents, n_best):
-        
-    #     best_idxs = numpy.argsort(numpy.array(p_sents))[::-1][:n_best]
-    #     best_sents = [sents[idx] for idx in best_idxs]
-    #     #return probs of best sents as well as sents
-    #     p_sents = numpy.array(p_sents)[best_idxs]
-        
-    #     return best_sents, p_sents
 
     def check_pred_model(self, batch_size):
         '''check if predictor (generation) model exists; if not, create it; n_timesteps will always be 1 since generating one word at a time'''
@@ -457,10 +445,7 @@ class RNNLM(SavedModel):
 
         for batch_index in range(0, len(seqs), batch_size):
             batch_features = None
-            # batch_pos = None
             batch_seqs = get_seq_batch(seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size) #prep batch
-            # if self.use_pos:
-            #     batch_pos = get_seq_batch(seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
             if self.use_features:
                 batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
 
@@ -517,7 +502,6 @@ class RNNLM(SavedModel):
             p_next_words = numpy.log(p_next_words)
             len_seqs = [len(seq) for seq in seqs[batch_index:batch_index + batch_size]]
             #remove padding from each sequence and before computing mean
-            #p_next_words = numpy.array([numpy.mean(p_next_words_[-len_seq:]) for p_next_words_, len_seq in zip(p_next_words, len_seqs)])
             p_next_words = [p_next_words_[-len_seq:] for p_next_words_, len_seq in zip(p_next_words, len_seqs)]
             probs.extend(p_next_words)
 
@@ -543,106 +527,6 @@ class RNNLM(SavedModel):
 
         embeddings = self.model.get_weights()[0]
         return embeddings
-
-
-class SeqBinaryClassifier(SavedModel):#, KerasClassifier):
-    def __init__(self, context_size, lexicon_size=None, n_embedding_nodes=300, batch_size=100, 
-                 n_hidden_layers=1, n_hidden_nodes=500, verbose=1, embedded_input=True, optimizer='RMSprop', clipvalue=numpy.inf,
-                 filepath=None, use_dropout=False, pairs=False): #max_length=None, , save_freq=20
-        
-        self.batch_size = batch_size
-        self.lexicon_size = lexicon_size
-        #self.max_length = max_length
-        self.n_hidden_layers = n_hidden_layers
-        self.n_hidden_nodes = n_hidden_nodes
-        self.n_embedding_nodes = n_embedding_nodes
-        self.context_size = context_size
-        self.verbose = verbose
-        self.embedded_input = embedded_input
-        self.use_dropout = use_dropout
-        self.clipvalue = clipvalue
-        self.optimizer = optimizer
-        #self.update_num = 0
-        #self.save_freq = save_freq
-        self.filepath = filepath
-
-        ####################CURRENT METHOD######################
-        # context_input_layer = Input(batch_shape=(self.batch_size, self.context_size, self.n_embedding_nodes), name="context_input_layer")
-
-        # seq_input_layer = Input(batch_shape=(self.batch_size, self.n_embedding_nodes), name="seq_input_layer")
-
-        # reshape_seq_layer = Reshape((1, self.n_embedding_nodes))(seq_input_layer)
-
-        # merge_layer = merge([context_input_layer, reshape_seq_layer], mode='concat', concat_axis=-2, name='merge_layer')
-
-        # mask_layer = Masking(mask_value=0.0, input_shape=(self.context_size + 1, self.n_embedding_nodes))(merge_layer)
-
-        # hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(mask_layer)#(merge_layer)
-
-        # pred_layer = Dense(output_dim=1, activation='sigmoid', name='pred_layer')(hidden_layer)
-
-        # self.model = Model(input=[context_input_layer, seq_input_layer], output=pred_layer)
-        ##########################################################
-
-        ####################ALTERNATIVE METHOD######################
-        context_input_layer = Input(batch_shape=(self.batch_size, self.context_size, self.n_embedding_nodes), name="context_input_layer")
-
-        context_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False, stateful=False, name='context_hidden_layer')(context_input_layer)
-
-        seq_input_layer = Input(batch_shape=(self.batch_size, self.n_embedding_nodes), name="seq_input_layer")
-
-        seq_hidden_layer = Dense(output_dim=self.n_hidden_nodes, activation='tanh', name='seq_hidden_layer')(seq_input_layer)
-
-        merge_layer = merge([context_hidden_layer, seq_hidden_layer], mode='dot', concat_axis=-1, name='merge_layer')
-
-        sigmoid_layer = Activation('sigmoid')(merge_layer)
-
-        self.model = Model(input=[context_input_layer, seq_input_layer], output=sigmoid_layer)
-        ##########################################################
-
-        # if self.use_dropout:
-        #     merge_layer = Dropout(p=0.25)(merge_layer)
-
-        # for layer_num in range(self.n_hidden_layers):
-
-        #     if layer_num + 1 == self.n_hidden_layers:
-        #         return_sequences = False
-        #     else:
-        #         return_sequences = True
-
-        #     if layer_num == 0:
-        #         if self.use_dropout:
-        #             merge_layer = Dropout(p=0.5)(merge_layer)
-        #         seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=return_sequences, stateful=False)(merge_layer)
-        #     else:
-        #         if self.use_dropout:
-        #             hidden_layer = Dropout(p=0.5)(hidden_layer)
-        #         seq_hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=return_sequences, stateful=False)(hidden_layer)
-
-
-        optimizer = eval(self.optimizer)(clipvalue=self.clipvalue)
-
-        self.model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-        
-        if self.verbose:
-            print("Created model", self.__class__.__name__, ":", self.__dict__)
-        
-    
-    def fit(self, input_seqs, output_seqs, labels):
-    
-        #sentences up to last are context, last sentence is ending to be judged as correct
-        history = self.model.fit([input_seqs, output_seqs], labels, nb_epoch=1, batch_size=self.batch_size)
-        
-        print("loss: {:.3f}, accuracy: {:.3f}".format(history.history['loss'][0], history.history['acc'][0]))
-
-        if self.filepath:
-            self.save()
-
-    def predict(self, input_seq, output_seq):
-        '''return score for likelihood of output seq given input seq'''
-
-        prob = self.model.predict([input_seq[None], output_seq[None]])[0]
-        return prob
 
 class MLPBinaryClassifier(SavedModel):
     def __init__(self, n_embedding_nodes=300, batch_size=100, 
@@ -982,118 +866,41 @@ class MLPLM(SavedModel):
         return probs
 
     
-class Seq2Seq(SavedModel):
-    def __init__(self, batch_size=100, n_encoding_layers=1, n_decoding_layers=0, 
-                 n_embedding_nodes=300, n_hidden_nodes=500, use_attention=False, 
-                 flat_input=False, flat_output=False, n_flat_input_nodes=4800, 
-                 embedded_input=True, use_dropout=False, filepath=None, verbose=True):
+class EncoderDecoder(SavedModel):
+    def __init__(self, n_embedding_nodes=300, n_hidden_nodes=500, recurrent=False, batch_size=100, filepath=None, verbose=True):
         
-        self.batch_size = batch_size
         self.n_embedding_nodes = n_embedding_nodes
-        self.n_encoding_layers = n_encoding_layers
-        self.n_decoding_layers = n_decoding_layers
         self.n_hidden_nodes = n_hidden_nodes
-        self.embedded_input = embedded_input
         self.filepath = filepath
-        self.use_attention = use_attention
-        self.use_dropout = use_dropout
-        self.flat_input = flat_input
-        self.flat_output = flat_output
-        self.n_flat_input_nodes = n_flat_input_nodes
+        self.recurrent = recurrent
         self.verbose = verbose
+        self.batch_size = batch_size
         self.n_timesteps = None
         self.lexicon_size = None
 
     def create_model(self):
 
-        if not self.flat_input and not self.flat_output:
-            #import pdb;pdb.set_trace()
-            encoder_inputs = Input(shape=(self.n_timesteps,))
-            emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')#(encoder_inputs)
+        if self.recurrent: #use sequence-to-sequence (RNN) model
+            encoder_inputs = Input(shape=(self.n_timesteps,), name='input_seq_layer')
+            emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_seq_layer')
             emb_encoder_inputs = emb_layer(encoder_inputs)
-            encoder = GRU(self.n_hidden_nodes, return_state=True)
+            encoder = GRU(self.n_hidden_nodes, name='encoded_seq_layer', return_state=True)
             encoder_outputs, state_h = encoder(emb_encoder_inputs)
-
             decoder_inputs = Input(shape=(self.n_timesteps,))
             emb_decoder_inputs = emb_layer(decoder_inputs)
-            decoder_gru = GRU(self.n_hidden_nodes, return_sequences=True)
+            decoder_gru = GRU(self.n_hidden_nodes, name='decoded_seq_layer', return_sequences=True)
             decoder_outputs = decoder_gru(emb_decoder_inputs, initial_state=state_h)
-            decoder_dense = Dense(self.lexicon_size + 1, activation='softmax')
+            decoder_dense = Dense(self.lexicon_size + 1, name='output_seq_layer', activation='softmax')
             decoder_outputs = decoder_dense(decoder_outputs)
             model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
             model.compile(loss="sparse_categorical_crossentropy", optimizer='adam')
 
-        else:
-        
-            if self.flat_input: #input is flat vector rather than sequence
-                input_seq_layer = Input(shape=(self.n_flat_input_nodes,), name="input_seq_layer")
-                if self.use_attention:
-                    attention_probs = Dense(output_dim=self.n_flat_input_nodes, activation='softmax', name='attention_probs')(input_seq_layer)
-                    attention_seq_layer = merge([input_seq_layer, attention_probs], output_shape=self.n_flat_input_nodes, 
-                                                name='attention_mul', mode='mul')
+        else: #flat encoder-decoder (no recurrent layer)
 
-            else:
-                input_seq_layer = Input(shape=(self.n_timesteps,), name="input_seq_layer")
-
-                #attention_probs = Dense(output_dim=self.n_flat_input_nodes, activation='softmax', name='attention_probs')(input_seq_layer)
-                #attention_mul = merge([inputs, attention_probs], output_shape=32, name='attention_mul', mode='mul')
-                # if self.use_attention:
-                #     #import pdb;pdb.set_trace()
-                #     emb_seq_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, name='emb_layer')(input_seq_layer) #mask_zero=True,
-                #     encoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='encoded_seq_layer')(emb_seq_layer)
-
-                #     permute1_attention_probs_layer = Permute((2, 1), name='permute1_attention_probs_layer')(encoded_seq_layer)
-                #     dense_attention_probs_layer = Dense(self.n_timesteps, activation='softmax', 
-                #                                         name='dense_attention_probs_layer')(permute1_attention_probs_layer)
-                #     # # if SINGLE_ATTENTION_VECTOR:
-                #     mean_attention_probs_layer = Lambda(lambda layer: K.mean(layer, axis=1), output_shape=(self.n_timesteps,), 
-                #                                         name='mean_attention_probs_layer')(dense_attention_probs_layer)
-                #     repeat_attention_probs_layer = RepeatVector(self.n_hidden_nodes, name='repeat_attention_probs_layer')(mean_attention_probs_layer)
-                #     permute2_attention_probs_layer = Permute((2, 1), name='permute2_attention_probs_layer')(repeat_attention_probs_layer)
-                #     encoded_seq_end_layer = Lambda(lambda layer: layer[:,-1], output_shape=(self.n_hidden_nodes,), name='attention_seq_end_layer')(encoded_seq_layer)
-                #     encoded_seq_repeat_layer = RepeatVector(self.n_timesteps, name='repeat_seq_layer')(encoded_seq_end_layer)
-                #     repeat_layer = merge([encoded_seq_repeat_layer, permute2_attention_probs_layer], mode='mul', name='attention_repeat_seq_layer')
-                #     #decoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='decoded_seq_layer')(repeat_layer)
-                    
-                # else:
-                emb_seq_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes, mask_zero=True, name='emb_layer')(input_seq_layer) #mask_zero=True,
-                encoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=False, name='encoded_seq_layer')(emb_seq_layer)
-                repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(encoded_seq_layer)
-
-            if self.flat_output:
-
-                if self.n_decoding_layers:
-                    for layer_idx in range(self.n_decoding_layers):
-                        if layer_idx == 0:
-                            if self.use_attention:
-                                decoded_seq_layer = Dense(output_dim=self.n_hidden_nodes, name='decoded_seq_layer' + str(layer_idx + 1), activation='sigmoid')(attention_seq_layer)
-                            else:
-                                decoded_seq_layer = Dense(output_dim=self.n_hidden_nodes, name='decoded_seq_layer' + str(layer_idx + 1), activation='sigmoid')(input_seq_layer)
-                        else:
-                            decoded_seq_layer = Dense(output_dim=self.n_hidden_nodes, name='decoded_seq_layer' + str(layer_idx + 1), activation='sigmoid')(decoded_seq_layer)
-
-                    output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='outcome_seq_layer')(decoded_seq_layer)
-                else:
-                    if self.use_attention:
-                        output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='outcome_seq_layer')(attention_seq_layer)
-                    else:
-                        output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='outcome_seq_layer')(input_seq_layer)#(decoded_seq_layer)
-
-                model = Model(input=input_seq_layer, output=output_seq_layer)
-
-                model.compile(loss="binary_crossentropy", optimizer='adam')
-            # else:
-
-            #     if self.flat_input:
-            #         repeat_layer = RepeatVector(self.n_timesteps, name="repeat_seq_layer")(input_seq_layer)
-            
-            #     decoded_seq_layer = GRU(self.n_hidden_nodes, return_sequences=True, name='decoded_seq_layer')(repeat_layer)
-
-            #     output_seq_layer = TimeDistributed(Dense(output_dim=self.lexicon_size + 1, activation='softmax', name='outcome_seq_layer'))(decoded_seq_layer)
-
-            #     model = Model(input=input_seq_layer, output=output_seq_layer)
-
-            #     model.compile(loss="sparse_categorical_crossentropy", optimizer='adam')
+            input_seq_layer = Input(shape=(self.lexicon_size + 1,), name="input_seq_layer")
+            output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='output_seq_layer')(input_seq_layer)
+            model = Model(input=input_seq_layer, output=output_seq_layer)
+            model.compile(loss="binary_crossentropy", optimizer='adam')
 
         return model
     
@@ -1103,20 +910,13 @@ class Seq2Seq(SavedModel):
             assert(lexicon_size is not None)
             self.lexicon_size = lexicon_size
             self.n_timesteps = n_timesteps
-            if not self.n_timesteps:
-                if self.flat_input:
-                    self.n_timesteps = max([len(seq) for seq in seqs2])
-                else:
-                    self.n_timesteps = max([len(seq) for seq in seqs1 + seqs2]) #if n_timesteps not given, set it to length of longest sequence
-            if self.flat_input and not self.embedded_input:
-                self.n_flat_input_nodes = self.lexicon_size + 1
+            if self.recurrent and not self.n_timesteps:
+                self.n_timesteps = max([len(seq) for seq in seqs1 + seqs2]) #if n_timesteps not given, set it to length of longest sequence
             self.model = self.create_model()
             if self.verbose:
                 print("Created model", self.__class__.__name__, ":", self.__dict__)
 
         assert(len(seqs1) == len(seqs2))
-
-        #import pdb;pdb.set_trace()
 
         for epoch in range(n_epochs):
             losses = []
@@ -1124,21 +924,15 @@ class Seq2Seq(SavedModel):
                 if self.verbose:
                     print("EPOCH:", epoch + 1)
             for batch_idx in range(0, len(seqs1), self.batch_size):
-                if self.flat_input:
-                    if self.embedded_input:
-                        batch_seqs1 = numpy.array(seqs1[batch_idx:batch_idx+self.batch_size])
-                    else:
-                        batch_seqs1 = get_vector_batch(seqs1[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size+1)
-                else:
-                    batch_seqs1 = get_seq_batch(seqs1[batch_idx:batch_idx+self.batch_size], max_length=self.n_timesteps)#[:,:,None]
-                if self.flat_output:
-                    #batch_seqs2 = numpy.array(seqs2[batch_idx:batch_idx+self.batch_size])
-                    batch_seqs2 = get_vector_batch(seqs2[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size+1)
-                    losses.append(self.model.train_on_batch(x=batch_seqs1, y=batch_seqs2))
-                else:
-                    batch_seqs2 = get_seq_batch(seqs2[batch_idx:batch_idx+self.batch_size], padding='post', max_length=self.n_timesteps)#[:,:,None]
+                if self.recurrent:
+                    batch_seqs1 = get_seq_batch(seqs1[batch_idx:batch_idx+self.batch_size], max_length=self.n_timesteps)
+                    batch_seqs2 = get_seq_batch(seqs2[batch_idx:batch_idx+self.batch_size], padding='post', max_length=self.n_timesteps)
                     batch_seqs2 = numpy.insert(batch_seqs2, 0, numpy.zeros(len(batch_seqs2)), axis=-1) #prepend zeros (not sure if this is necessary)
                     losses.append(self.model.train_on_batch(x=[batch_seqs1, batch_seqs2[:,:-1]], y=batch_seqs2[:,1:,None]))
+                else:
+                    batch_seqs1 = get_vector_batch(seqs1[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size+1)
+                    batch_seqs2 = get_vector_batch(seqs2[batch_idx:batch_idx+self.batch_size], vector_length=self.lexicon_size+1)
+                    losses.append(self.model.train_on_batch(x=batch_seqs1, y=batch_seqs2))
                 if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
                     if self.verbose:
                         print("loss: {:.7f}".format(numpy.mean(numpy.array(losses))))
@@ -1147,48 +941,22 @@ class Seq2Seq(SavedModel):
             if save_to_filepath and self.filepath:
                 self.save()
         
-    def predict(self, seq1, seq2, pred_method='multiply', unigram_probs=None):
+    def predict(self, seq1, seq2, pred_method='multiply'):
 
-        '''right now this function only handles getting prob for one sequence pair'''
-        if self.flat_input:
-            if self.embedded_input:
-                seq1 = seq1[None]
-            else:
-                seq1 = get_vector_batch([seq1], vector_length=self.lexicon_size+1)
-            # else:
-            #     seq1 = get_seq_batch([seq1], max_length=self.n_timesteps)
-
-            probs = self.model.predict_on_batch(seq1)[0]
-
-        if self.flat_output:
-            if unigram_probs is not None:
-                probs = probs / unigram_probs ** 0.66
-                probs[numpy.isinf(probs)] = 0.0 #replace inf
-            #import pdb;pdb.set_trace()
-            seq2 = get_vector_batch([seq2], vector_length=self.lexicon_size+1)
-            #prob = 1 - cosine(seq2, probs)
-            probs = probs[seq2[0].astype('bool')]
-
-        else:
-            #import pdb;pdb.set_trace()
+        if self.recurrent:
             seq1 = get_seq_batch([seq1], max_length=self.n_timesteps)
             seq2 = get_seq_batch([seq2], padding='post', max_length=self.n_timesteps)
             seq2 = numpy.insert(seq2, 0, numpy.zeros(len(seq2)), axis=-1) #prepend zeros (not sure if this is necessary)
             probs = self.model.predict_on_batch([seq1, seq2[:,:-1]])[0]
-
             probs = probs[numpy.arange(self.n_timesteps), seq2[:,1:]]
             probs = probs[seq2[:,1:] > 0]
+        else:
+            seq1 = get_vector_batch([seq1], vector_length=self.lexicon_size+1)
+            probs = self.model.predict_on_batch(seq1)[0]
+            seq2 = get_vector_batch([seq2], vector_length=self.lexicon_size+1)
+            probs = probs[seq2[0].astype('bool')]
 
-        if pred_method == 'multiply':
-            prob = numpy.sum(numpy.log(probs))
-            #prob = numpy.multiply(probs)
-        if pred_method == 'mean':
-            #prob = numpy.sum(numpy.log(probs))
-            prob = numpy.mean(numpy.log(probs))
-        elif pred_method == 'last':
-            prob = numpy.log(probs[-1])
-        elif pred_method == 'max':
-            prob = numpy.log(numpy.max(probs))
+        prob = numpy.sum(numpy.log(probs))
         return prob
 
     def get_most_probable_words(self, seq1, top_n_words=10, unigram_probs=None):
