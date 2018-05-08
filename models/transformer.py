@@ -1,19 +1,17 @@
 from __future__ import print_function
 import numpy, os, spacy, pickle, sys, re, random
 from itertools import *
-# from sklearn.preprocessing import FunctionTransformer
-# from sklearn.feature_extraction.text import CountVectorizer
-#from keras.preprocessing.sequence import pad_sequences
 
 #SKIPTHOUGHTS
 sys.path.append('skip-thoughts-master')
 sys.path.append('../skip-thoughts-master')
-import skipthoughts
-reload(skipthoughts)
-from training import vocab
-from training import train as encoder_train
-from training import tools as encoder_tools
-reload(encoder_tools)
+try:
+    import skipthoughts
+    from training import vocab
+    from training import train as encoder_train
+    from training import tools as encoder_tools
+except:
+    pass
 
 #load spacy model for nlp tools
 encoder = spacy.load('en_core_web_md')
@@ -275,76 +273,6 @@ def filter_gen_seq(seq, n_sents=1, eos_tokens=[]):
 def get_word_pairs(tok_seq1, tok_seq2):
     pairs = [(word1, word2) for word1 in tok_seq1 for word2 in tok_seq2]
     return pairs
-
-# def get_adj_sent_pairs(seqs, tokenized=False, max_distance=1, reverse=False, max_sent_length=25): #segment_clauses=False,
-#     '''sequences is a list of sentences in each sequence, either tokenized or string;
-#     max distance indicates clause window within which pairs will be found
-#     (e.g. when max_distance = 2, both neighboring clauses and those separated by one other clause will be paired'''
-#     pairs = []
-#     for seq in seqs:
-#         # if type(seq) in (str, unicode):
-#         #     seq = segment(seq, clauses=segment_clauses)
-#         # len_seq_before = len(seq)
-#         # seq_before = seq
-#         if tokenized:
-#             seq = [sent for sent in seq if len(sent) and len(sent) <= max_sent_length] #filter empty clauses
-#         # len_seq_after = len(seq)
-#         # if len_seq_before > len_seq_after:
-#         #     print("before:", seq_before)
-#         #     print("after:", seq)
-#         for sent_idx in range(len(seq) - 1):
-#             sent1 = seq[sent_idx]
-#             # if type(sent1) in (str, unicode):
-#             #     len_sent1 = len(tokenize(sent1))
-#             # else:
-#             # len_sent1 = len(sent1)
-#             # if len_sent1 and len_sent1 <= max_sent_length:
-#             for window_idx in range(max_distance):
-#                 if sent_idx + window_idx == len(seq) - 1:
-#                     break
-#                 sent2 = seq[sent_idx + window_idx + 1]
-#                 # if type(sent2) in (str, unicode):
-#                 #     len_sent2 = len(tokenize(sent2))
-#                 # else:
-#                 #     len_sent2 = len(sent2)
-#                 # if len_sent2 and len_sent2 <= max_sent_length: #filter sentences that are too long
-#                 if reverse:
-#                     pairs.append((sent2, sent1)) #if reverse=True, reverse order of sentence pair
-#                 else:
-#                     pairs.append((sent1, sent2))
-#     return pairs
-
-# def get_subseqs(seqs, segment_clauses=False, distance=1, max_sent_length=25):
-#     '''sequences can be string or transformer into numbers;
-#     if segment clauses=True, split sequences by clause boundaries rather than sentence boundaries,
-#     max distance indicates clause window within which pairs will be found
-#     (e.g. when max_distance = 2, both neighboring clauses and those separated by one other clause will be paired'''
-#     subseqs = []
-#     for seq in seqs:
-#         if type(seq) in (str, unicode):
-#             seq = segment(seq, clauses=segment_clauses)
-#         for sent_idx in range(len(seq) - 1):
-
-#             sent1 = seq[sent_idx]
-#             if type(sent1) in (str, unicode):
-#                 len_sent1 = len(tokenize(sent1))
-#             else:
-#                 len_sent1 = len(sent1)
-#             if len_sent1 and len_sent1 <= max_sent_length:
-#                 for window_idx in range(max_distance):
-#                     if sent_idx + window_idx == len(seq) - 1:
-#                         break
-#                     sent2 = seq[sent_idx + window_idx + 1]
-#                     if type(sent2) in (str, unicode):
-#                         len_sent2 = len(tokenize(sent2))
-#                     else:
-#                         len_sent2 = len(sent2)
-#                     if len_sent2 and len_sent2 <= max_sent_length: #filter sentences that are too long
-#                         if reverse:
-#                             pairs.append((sent2, sent1)) #if reverse=True, reverse order of sentence pair
-#                         else:
-#                             pairs.append((sent1, sent2))
-#     return pairs
 
 def get_adj_sent_pairs(seqs, segment_clauses=False, max_distance=1, reverse=False, max_sent_length=25):
     '''sequences can be string or transformer into numbers;
@@ -776,7 +704,13 @@ class SequenceTransformer():
 
 
 class SkipthoughtsTransformer(SequenceTransformer):
-    def __init__(self, encoder_module=skipthoughts, filepath=None, encoder_dim=4800, verbose=True):
+    def __init__(self, encoder_module=None, filepath=None, encoder_dim=4800, verbose=True):
+        if not encoder_module:
+            try:
+                encoder_module = skipthoughts
+            except NameError:
+                print("cannot import skipthoughts, skip-thoughts-master directory not found!")
+                return
         self.encoder_module = encoder_module
         self.filepath = filepath
         if not self.filepath:
@@ -818,41 +752,15 @@ class SkipthoughtsTransformer(SequenceTransformer):
             
         return embedded_seqs
 
-    # @classmethod
-    # def load(cls, filepath='../skip-thoughts-master', word_embs='../ROC/AvMaxSim/vectors', n_nodes=4800, pretrained=True, verbose=True):
-        # if pretrained:
-        #     #filepaths are hard-coded for pre-trained skipthought model
-        #     encoder_module = skipthoughts
-        #     sent_encoder = encoder_module.load_model(path_to_models=filepath)
-
-        # else:
-        #     encoder_module = encoder_tools
-        #     sent_encoder = encoder_module.load_model(embed_map=word_embs, 
-        #                                              path_to_model=filepath + '/encoder', 
-        #                                              path_to_dictionary=filepath + '/lexicon')
-            
-        # transformer = SkipthoughtsTransformer(encoder_module=encoder_module, 
-        #                                       encoder_dim=n_nodes, verbose=verbose)
-
-        # print('loaded skipthoughts encoder from', filepath)
-
-        # return transformer
-
 
 class WordEmbeddings():
     def __init__(self, filepath):#, embs=None, lexicon=None):
         self.embs_filepath = filepath + "/embeddings.npy"
         self.lexicon_filepath = filepath + "/lexicon.pkl"
-        # if embs is not None:
-        #     numpy.save(self.embs_filepath, embs)
         self.embs = numpy.load(self.embs_filepath, mmap_mode='r')
         self.vector_size = self.embs.shape[-1]
-        # if lexicon is None:
         with open(self.lexicon_filepath, 'rb') as f:
             lexicon = pickle.load(f)
-        # else: #save lexicon
-        #     with open(self.lexicon_filepath, 'wb') as f:
-        #         pickle.dump(lexicon, f)
         self.lexicon = lexicon
     def __getitem__(self, word):
         word_emb = self.embs[self.lexicon[word]]
