@@ -105,8 +105,8 @@ if __name__ == '__main__':
  	train_input_seqs2, train_output_seqs2 = get_train_input_outputs('dataset/ROCStories_winter2017.csv', mode='concat')
  	train_input_seqs = train_input_seqs1 + train_input_seqs2
  	train_output_seqs = train_output_seqs1 + train_output_seqs2
- 	train_input_seqs = train_input_seqs[:25]
- 	train_output_seqs = train_output_seqs[:25]
+ 	#train_input_seqs = train_input_seqs[:25]
+ 	#train_output_seqs = train_output_seqs[:25]
 
  	save_filepath = 'roc_rnnbinary'
  	#If using skipthoughts to represent data, must provide path to skipthoughts model
