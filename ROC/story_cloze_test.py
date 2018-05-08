@@ -6,10 +6,6 @@ from models.pipeline import *
 from models.classifier import *
 from models.transformer import *
 
-# sys.path.append('../skip-thoughts-master/')
-# import skipthoughts
-# from training import tools as encoder_tools
-
 warnings.filterwarnings('ignore', category=Warning)
 
 def check_punct(stories, eos_markers=["\"", "\'", ".", "?", "!"]):
