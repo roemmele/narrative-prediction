@@ -57,18 +57,18 @@ def eval_fn(model_scheme, data_filepath):
 
 
 if __name__ == '__main__':
-    stories_filepath = '../../ROC/dataset/roc_train_stories100.csv'
-    save_filepath = '../../ROC/trained_models/encoder_decoder/roc100_rnn_enc_dec_bow_dist1_clauses_new'
+    stories_filepath = '../ROC/dataset/roc_train_stories97027.csv'
+    save_filepath = 'roc_test'
 
     if os.path.exists(save_filepath + '/transformer.pkl'): #if transformer already exists, load it
         transformer = SequenceTransformer.load(save_filepath)
     else:
-        transformer = SequenceTransformer(min_freq=1, lemmatize=True, filepath=save_filepath, 
+        transformer = SequenceTransformer(min_freq=5, lemmatize=True, filepath=save_filepath, 
                                         include_tags=['JJ', 'JJR', 'JJS', 'NN', 'NNS', 'RB', 'RBR', 'RBS', 'RP',
                                                         'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ'])
 
     segment_clauses = True
-    max_sent_distance = 1
+    max_sent_distance = 4
     max_segment_length = 20
     recurrent = False
 
