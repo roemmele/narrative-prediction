@@ -5,14 +5,14 @@ This repository contains Python code that trains and evaluates a model that pred
 
 This code should run in both Python 2 and Python 3. It requires these libraries: [Keras](keras.io) with either the [TensorFlow](https://www.tensorflow.org/) or [Theano](http://deeplearning.net/software/theano/) backend, [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/).
 
-The model makes use of [skipthought vectors](https://github.com/ryankiros/skip-thoughts) to represent story sentences. You will need to download this repository. Follow the instructions given in their README. If you download the model and embedding files to the main directory of the repository (e.g. skip-thoughts/), then specifically set the paths in skip-thoughts/skipthoughts.py to the following:
+The model makes use of [skipthought vectors](https://github.com/ryankiros/skip-thoughts) to represent story sentences. You will need to download the repository in that link. Follow the instructions given in their README. If you download the model and embedding files to the main directory of the repository (i.e. skip-thoughts/), then specifically set the paths in skip-thoughts/skipthoughts.py to the following:
 
 ```
 path_to_models = os.path.dirname(os.path.realpath(__file__)) + "/"
 path_to_tables = os.path.dirname(os.path.realpath(__file__)) + "/"
 ```
 
-When you run the code, you'll need to supply the location of this directory (see below).
+When you run the code, you'll need to supply the location of the skip-thoughts/ directory (see below).
 
 ### Training
 
@@ -79,7 +79,7 @@ Here, skip-thoughts/ is in the same directory as where the script is being run, 
 
 ### Loading a trained model
 
-After training a model, you can reload it in a different Python session by specifying the filepath of the model as well as the skipthoughts filepath in the load_model() function. For example, to load the model trained above and evaluate it on the test cloze items, run:
+After training a model, you can reload it in a different Python session by specifying the filepath of the model as well as the skipthoughts filepath in the load_model() function. For example, to load the example model from above and evaluate it on the test cloze items, run:
 
 ```
 from story_cloze_test import *
@@ -90,7 +90,7 @@ test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, 
 
 ### Results
 
-As reported in the paper, this approach with the default parameters defined here obtained 66.2% accuracy on the validation set of the Story Cloze Test and 66.9% on the test set.
+As reported in the paper, when trained on all 97,027 stories in the ROCStories corpus, this approach with the default parameters defined here obtained 66.2% accuracy on the validation set of the Story Cloze Test and 66.9% on the test set.
 
 <sup>*There was one result that was trivially higher (statistically insignificant) which used additional methods for generating incorrect endings beyond the random/backward methods. It is not represented here. </sup>
 
