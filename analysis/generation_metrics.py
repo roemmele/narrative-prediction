@@ -17,9 +17,9 @@ from models.ngram import *
 from models.narrative_pmi.narrative_dataset import Narrative_Dataset
 from models.narrative_pmi.pmi import PMI_Model
 
-sys.path.append('skip-thoughts-master/')
-sys.path.append('../skip-thoughts-master/')
-import skipthoughts
+# sys.path.append('skip-thoughts-master/')
+# sys.path.append('../skip-thoughts-master/')
+# import skipthoughts
 
 from nltk.translate.bleu_score import *
 
@@ -27,10 +27,6 @@ from pycorenlp import StanfordCoreNLP
 corenlp = StanfordCoreNLP('http://localhost:9000')
 
 from subprocess import Popen, PIPE
-#import m2scorer.scripts.levenshtein as ld
-#from gleu import GLEU
-#from m2scorer.m2scorer import load_annotation as load_m2_annotation
-#from imeasure.ieval import IMeasure
 
 
 skipthoughts_transformer = None

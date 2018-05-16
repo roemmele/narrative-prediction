@@ -63,7 +63,7 @@ if __name__ == '__main__':
     if os.path.exists(save_filepath + '/transformer.pkl'): #if transformer already exists, load it
         transformer = SequenceTransformer.load(save_filepath)
     else:
-        transformer = SequenceTransformer(min_freq=1, lemmatize=True, filepath=save_filepath, 
+        transformer = SequenceTransformer(min_freq=5, lemmatize=True, filepath=save_filepath, 
                                         include_tags=['JJ', 'JJR', 'JJS', 'NN', 'NNS', 'RB', 'RBR', 'RBS', 'RP',
                                                         'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ'])
 

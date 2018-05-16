@@ -61,7 +61,7 @@ if __name__ == '__main__':
 												required=False, type=int, default=15)
 	parser.add_argument("--n_hidden_layers", "-lay", help="Specify number of recurrent hidden layers in model. Default is 2.", required=False, type=int, default=2)
 	parser.add_argument("--n_embedding_nodes", "-emb", help="Specify number of nodes in word embedding layer that feeds into recurrent hidden layer. Default is 300.", required=False, type=int, default=300)
-	parser.add_argument("--n_hidden_nodes", "-hid", help="Specify number of nodes in recurrent hidden layer. Default is 500.", required=False, type=int, default=500)
+	parser.add_argument("--n_hidden_nodes", "-hid", help="Specify number of nodes in each recurrent hidden layer. Default is 500.", required=False, type=int, default=500)
 	parser.add_argument("--n_pos_nodes", "-pos", help="For model with POS tags, specify number of nodes in POS hidden layer. Default is 100.", required=False, type=int, default=100)
 	parser.add_argument("--n_feature_nodes", "-feat", help="For model with features, specify number of nodes in feature hidden layer. Default is 100.", required=False, type=int, default=100)
 	parser.add_argument("--n_epochs", "-epoch", help="Specify the number of epochs the model should be trained for. Default is 10.", required=False, type=int, default=10)

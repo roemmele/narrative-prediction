@@ -1,5 +1,5 @@
 from __future__ import print_function
-import sys, os, warnings, pandas
+import sys, os, warnings, pandas, argparse
 sys.path.append('../')
 
 from models.pipeline import *
@@ -96,30 +96,42 @@ def evaluate_roc_cloze(model, input_seqs, output_choices, output_gold):
     accuracy = numpy.mean(pred_choices == numpy.array(output_gold))
     return accuracy
 
+def load_model(filepath, skip_filepath):
+    model = RNNBinaryPipeline.load(filepath=filepath, transformer_is_skip=True, skip_filepath=skip_filepath)
+    return model
+
 if __name__ == '__main__':
- 	train_input_seqs1, train_output_seqs1 = get_train_input_outputs('dataset/ROC-Stories.tsv', mode='concat')
- 	train_input_seqs2, train_output_seqs2 = get_train_input_outputs('dataset/ROCStories_winter2017.csv', mode='concat')
- 	train_input_seqs = train_input_seqs1 + train_input_seqs2
- 	train_output_seqs = train_output_seqs1 + train_output_seqs2
- 	#train_input_seqs = train_input_seqs[:25]
- 	#train_output_seqs = train_output_seqs[:25]
+    parser = argparse.ArgumentParser(description="Train an RNN-based binary classifier to perform the Story Cloze Test")
+    parser.add_argument("--train_seqs", "-train", help="Specify filename (.tsv) containing ROCStories used as training data.", type=str, required=True)
+    parser.add_argument("--val_items", "-val", help="Specify filename (.tsv) containing cloze items in validation set.", type=str, required=True)
+    parser.add_argument("--test_items", "-test", help="Specify filename (.tsv) containing cloze items in test set.", type=str, required=True)
+    parser.add_argument("--save_filepath", "-save", help="Specify the directory filepath where the trained model should be stored.", type=str, required=True)
+    parser.add_argument("--skip_filepath", "-skip", help="Specify the directory filepath where the model for the skipthought vectors is located.", type=str, required=True)
+    parser.add_argument("--n_backward", "-bkwrd", help="Specify number of \"backward\" generated endings (i.e. sentences selected from initial story) to include in incorrect training samples. Default is 2.", 
+                        required=False, type=int, default=2)
+    parser.add_argument("--n_random", "-rand", help="Specify number of \"random\" generated endings (i.e. endings randomly selected from other stories) to include in incorrect training samples. Default is 4.", 
+                        required=False, type=int, default=4)
+    parser.add_argument("--batch_size", "-batch", help="Specify number of sequences in batch during training. Default is 100.", required=False, type=int, default=100)
+    parser.add_argument("--n_hidden_layers", "-lay", help="Specify number of recurrent hidden layers in model. Default is 1.", required=False, type=int, default=1)
+    parser.add_argument("--n_hidden_nodes", "-hid", help="Specify number of nodes in each recurrent hidden layer. Default is 1000.", required=False, type=int, default=1000)
+    parser.add_argument("--n_epochs", "-epoch", help="Specify the number of epochs the model should be trained for. Default is 10.", required=False, type=int, default=10)
+    args = parser.parse_args()
 
- 	save_filepath = 'roc_rnnbinary'
- 	#If using skipthoughts to represent data, must provide path to skipthoughts model
- 	transformer = SkipthoughtsTransformer(filepath='../skip-thoughts-master/', verbose=False)
- 	classifier = RNNBinaryClassifier(filepath=save_filepath, n_input_sents=4, 
-                                     n_embedding_nodes=transformer.encoder_dim, n_hidden_nodes=1000)
+    train_input_seqs, train_output_seqs = get_train_input_outputs(args.train_seqs, mode='concat')
 
- 	model = RNNBinaryPipeline(transformer, classifier)
+    val_input_seqs, val_output_choices, val_output_gold = get_cloze_data(args.val_items)
 
- 	model.fit(train_input_seqs, train_output_seqs, n_bkwrd=2, n_random=4, n_epochs=10, n_chunks=50)
- 	
- 	#model = RNNBinaryPipeline.load(filepath=save_filepath, transformer_is_skip=True, skip_filepath='../skip-thoughts-master/')
- 	input_seqs, output_choices, output_gold = get_cloze_data('dataset/cloze_test_ALL_val.tsv')
- 	val_accuracy = evaluate_roc_cloze(model, input_seqs, output_choices, output_gold)
- 	print("ROC cloze val accuracy:", val_accuracy)
+    transformer = SkipthoughtsTransformer(filepath=args.skip_filepath, verbose=False)
+    classifier = RNNBinaryClassifier(filepath=args.save_filepath, n_input_sents=4, n_embedding_nodes=transformer.encoder_dim,
+                                    n_hidden_layers=args.n_hidden_layers, n_hidden_nodes=args.n_hidden_nodes, batch_size=args.batch_size)
 
- 	input_seqs, output_choices, output_gold = get_cloze_data('dataset/cloze_test_ALL_test.tsv')
- 	test_accuracy = evaluate_roc_cloze(model, input_seqs, output_choices, output_gold)
- 	print("ROC cloze test accuracy:", test_accuracy)
+    model = RNNBinaryPipeline(transformer, classifier)
+    #eval_fn is a function that computes accuracy of model on validation cloze items during training
+    model.fit(train_input_seqs, train_output_seqs, n_bkwrd=args.n_backward, n_random=args.n_random, n_epochs=args.n_epochs,
+            eval_fn=lambda model: evaluate_roc_cloze(model, val_input_seqs, val_output_choices, val_output_gold))
+
+    #After training, compute accuracy on test set
+    test_input_seqs, test_output_choices, test_output_gold = get_cloze_data(args.test_items)
+    test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, test_output_gold)
+    print("ROC cloze test accuracy:", test_accuracy)
 

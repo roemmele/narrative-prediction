@@ -629,7 +629,7 @@ class MLPBinaryClassifier(SavedModel):
 
 class RNNBinaryClassifier(SavedModel):
     def __init__(self, n_embedding_nodes=300, batch_size=100, embedded_input=True, n_input_sents=1,
-                 n_hidden_layers=1, n_hidden_nodes=500, filepath=None):#, use_dropout=False):
+                 n_hidden_layers=1, n_hidden_nodes=1000, filepath=None):#, use_dropout=False):
         
         self.batch_size = batch_size
         self.n_hidden_layers = n_hidden_layers
@@ -898,7 +898,8 @@ class EncoderDecoder(SavedModel):
         else: #flat encoder-decoder (no recurrent layer)
 
             input_seq_layer = Input(shape=(self.lexicon_size + 1,), name="input_seq_layer")
-            output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='output_seq_layer')(input_seq_layer)
+            encoded_seq_layer = Dense(output_dim=self.n_hidden_nodes, activation='sigmoid', name='encoded_seq_layer')(input_seq_layer)
+            output_seq_layer = Dense(output_dim=self.lexicon_size + 1, activation='sigmoid', name='output_seq_layer')(encoded_seq_layer)
             model = Model(input=input_seq_layer, output=output_seq_layer)
             model.compile(loss="binary_crossentropy", optimizer='adam')
 

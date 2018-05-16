@@ -2,17 +2,6 @@ from __future__ import print_function
 import numpy, os, spacy, pickle, sys, re, random
 from itertools import *
 
-#SKIPTHOUGHTS
-sys.path.append('skip-thoughts-master')
-sys.path.append('../skip-thoughts-master')
-try:
-    import skipthoughts
-    from training import vocab
-    from training import train as encoder_train
-    from training import tools as encoder_tools
-except:
-    pass
-
 #load spacy model for nlp tools
 encoder = spacy.load('en_core_web_md')
 
@@ -62,8 +51,6 @@ def get_pos_num_seq(seq): #get part-of-speech (PTB fine-grained) tags for this s
     return pos_num_seq
 
 def ent_counts_to_probs(ent_counts):
-    # ent_counts = {ent_type:{ent:count for ent,count in ent_counts[ent_type].items() #filter by frequency
-    #                     if count >= min_freq} for ent_type in ent_counts}
     sum_ent_counts = {ent_type:sum(counts.values()) for ent_type, counts in ent_counts.items()}
     ent_probs = {ent_type:{ent:count * 1. / sum_ent_counts[ent_type] for ent,count in ent_counts[ent_type].items()}
                                                                                          for ent_type in ent_counts}
@@ -107,12 +94,9 @@ def get_ents(seq, include_ent_types=('PERSON','NORP','ORG','GPE'), recognize_gen
 def number_ents(ents, ent_counts):
     '''return dict of all entities in seq mapped to their entity types, 
     with numerical suffixes to distinguish entities of the same type'''
-    #import pdb;pdb.set_trace()
     ent_counts = sorted([(count, ent, ents[ent]) for ent,count in ent_counts.items()])[::-1] 
-    #ent_counts = ent:ents[idx] for idx, (count, ent) in enumerate(ent_counts)} #assign numbers based on entity frequency
     ent_type_counts = {}
     num_ents = {}
-    #for ent, ent_type in ents.items():
     for count, ent, ent_type in ent_counts:
         coref_ent = [num_ent for num_ent in num_ents if (tokenize(num_ent, lowercase=False)[0] == tokenize(ent, lowercase=False)[0]
                                                         or tokenize(num_ent, lowercase=False)[-1] == tokenize(ent, lowercase=False)[-1]) 
@@ -154,14 +138,12 @@ def adapt_tok_seq_ents(seq, ents={}, sub_ent_probs={}):
                     break
 
     for seq_ent_type in {ent_type:adapted_ent for ent_type,adapted_ent in adapted_seq_ents.items() if not adapted_ent}:
-        #import pdb;pdb.set_trace()
         if seq_ent_type.split("_")[0] in sub_ent_probs:
             sub_ents, sub_probs = zip(*sub_ent_probs[seq_ent_type.split("_")[0]].items())
             rand_ent_idx = rng.choice(len(sub_ents), p=numpy.array(sub_probs))
             adapted_seq_ents[seq_ent_type] = sub_ents[rand_ent_idx]
 
     for seq_ent_type in {ent_type:adapted_ent for ent_type,adapted_ent in adapted_seq_ents.items() if not adapted_ent}:
-        #import pdb;pdb.set_trace()
         adapted_seq_ents[seq_ent_type] = u'<UNK>' #as last resort, replace entity with UNK token
 
     seq = [adapted_seq_ents["_" .join(token.split("_")[1:])] if "_" .join(token.split("_")[1:]) in adapted_seq_ents else token for token in seq]
@@ -190,13 +172,8 @@ def detokenize_tok_seq(seq, ents=[]):
                         break
                 token_idx += 1
 
-        #!!!!!! NEED TO WRITE A RULE THAT TAKES PLURAL POSSESSIVE PUNCTUATION (E.G. " PARENTS' "") INTO ACCOUNT
-
-
-        # if type(detok_sent) in (tuple, list):
         detok_sent = " ".join(sent)
 
-        #import pdb;pdb.set_trace()
         detok_sent = re.sub("\'", "'", detok_sent)
 
         #capitalize first-person "I" pronoun
@@ -347,43 +324,6 @@ def segment_into_clauses(seq):
         clauses.extend(sent_clauses)
     return clauses
 
-# '''10/19/18: New clause segmentation function. Main differences is that only verbs are considered for segmentation (which avoids segmenting conjunctions of nouns)'''
-# def segment_into_clauses(seq):
-#     '''applies a set of heuristics to segment a sequence (one or more sentences) into clauses
-#     the clauses are those that would useful for splitting causal events, so not all types clauses will be recognized'''
-#     clauses = []
-#     sents = segment(seq)
-#     for sent in sents:
-#         sent = encoder(sent)
-#         clause_bound_idxs = []
-#         verb_found = False
-#         for word in sent:
-#             if word.pos_ == 'VERB': #, 'ROOT')\
-#                 if word.dep_ in ('advcl','conj','pcomp', 'relcl')\
-#                     and word.head.dep_ in ('ccomp','conj','ROOT','xcomp'):#, 'prep', 'relcl','acomp'): #'prep', 'relcl','acomp' newly added
-#                     if clause_bound_idxs and clause_bound_idxs[-1] >= word.left_edge.i:
-#                         clause_bound_idxs[-1] = word.left_edge.i #ensure no overlap in clauses
-#                     if not clause_bound_idxs or clause_bound_idxs[-1] + 1 < word.left_edge.i:
-#                         if verb_found or word.left_edge.i == 0: #don't segment any previously detected clauses that don't contain a verb
-#                             clause_bound_idxs.append(word.left_edge.i) #attach single words to previous clause
-#                     clause_bound_idxs.append(word.right_edge.i + 1)
-#                 verb_found = True
-#         if clause_bound_idxs and clause_bound_idxs[0] == 1:
-#             clause_bound_idxs[0] = 0 #merge first word in first clause if split out
-#         if not clause_bound_idxs or clause_bound_idxs[0]:
-#             clause_bound_idxs.insert(0, 0)
-#         if clause_bound_idxs[-1] < len(sent):
-#             clause_bound_idxs.append(len(sent)) #set clause boundary at end of sentence
-#         sent_clauses = []
-#         for idx,next_idx in zip(clause_bound_idxs, clause_bound_idxs[1:]):
-#             clause = sent[idx:next_idx]#.string
-#             if sent_clauses and len(clause) == 1 and clause[-1].pos_ == 'PUNCT':  #if clause is punctuation, append it to previous clause
-#                 sent_clauses[-1] = sent_clauses[-1] + clause.string
-#             else:
-#                 sent_clauses.append(clause.string)
-#         clauses.extend(sent_clauses)
-#     return clauses
-
 def combine_phrases_in_seq(seq, phrases, lemmatized=False): 
     phrased_seq = []
     seq = tokenize(seq, lowercase=False)
@@ -418,7 +358,7 @@ def load_seqs(filepath, memmap=False, shape=None):
 class SequenceTransformer():
     def __init__(self, min_freq=1, lexicon=[], lemmatize=False, prepend_start=False,
                 include_tags=[], verbose=1, unk_word=u"<UNK>", word_embs=None,
-                use_spacy_embs=False, generalize_ents=False, phrases=None, filepath=None): #reduce_emb_mode=None, 
+                use_spacy_embs=False, generalize_ents=False, phrases=None, filepath=None):
         self.unk_word = unk_word #string representation for unknown words in lexicon
         self.word_embs = word_embs #use existing word embeddings if given
         self.use_spacy_embs = use_spacy_embs
@@ -608,7 +548,6 @@ class SequenceTransformer():
         decoded_seqs = []
         #transform numerical seq back into string
         for seq_idx, seq in enumerate(seqs):
-            #import pdb;pdb.set_trace()
             seq = [self.lexicon_lookup[word] if self.lexicon_lookup[word] else self.unk_word for word in seq]
             if ents and adapt_ents: #replace generated entities with those given in ents
                 seq = adapt_tok_seq_ents(seq, ents=ents[seq_idx], sub_ent_probs=ent_counts_to_probs(self.filtered_ent_counts))
@@ -646,11 +585,8 @@ class SequenceTransformer():
         return embedded_seqs
 
     def pad_embs(self, seqs, max_length=None):
-        #import pdb;pdb.set_trace()
         if not max_length:
             max_length = max([len(seq) for seq in seqs])
-
-        #n_embedding_nodes = seqs[0].shape[-1]
 
         padded_seqs = numpy.zeros((len(seqs), max_length, self.n_embedding_nodes))
         for seq_idx, seq in enumerate(seqs):
@@ -704,22 +640,20 @@ class SequenceTransformer():
 
 
 class SkipthoughtsTransformer(SequenceTransformer):
-    def __init__(self, encoder_module=None, filepath=None, encoder_dim=4800, verbose=True):
-        if not encoder_module:
-            try:
-                encoder_module = skipthoughts
-            except NameError:
-                print("cannot import skipthoughts, skip-thoughts-master directory not found!")
-                return
-        self.encoder_module = encoder_module
+    def __init__(self, filepath, verbose=True):
+        self.import_skipthoughts(filepath)
         self.filepath = filepath
-        if not self.filepath:
-            self.filepath = "skip-thoughts-master" #if no filepath given, try to find model in current directory
-        self.encoder = self.encoder_module.load_model(self.filepath)
-        self.encoder_dim = encoder_dim
+        self.encoder = self.skipthoughts_module.load_model()
+        self.encoder_dim = self.encoder['uoptions']['dim'] + 2 * self.encoder['boptions']['dim']
         self.verbose = verbose
+    def import_skipthoughts(self, filepath):
+        '''Import the skipthoughts model from the given directory filepath'''
+        sys.path.append(filepath)
+        try:
+            self.skipthoughts_module = __import__('skipthoughts')
+        except:
+            print("Could not locate skipthoughts model in filepath", filepath)
     def text_to_embs(self, seqs, seqs_filepath=None):
-        #import pdb;pdb.set_trace()
         n_seqs = len(seqs)
         if type(seqs[0]) in (list, tuple):
             seq_length = numpy.array([len(seq) for seq in seqs])
@@ -740,8 +674,7 @@ class SkipthoughtsTransformer(SequenceTransformer):
         chunk_size = 500000
         for seq_idx in range(0, len(seqs), chunk_size):
             #memory errors if encoding a large number of stories
-            embedded_seqs[seq_idx:seq_idx + chunk_size] = self.encoder_module.encode(self.encoder, 
-                                                                                    seqs[seq_idx:seq_idx + chunk_size], verbose=self.verbose)
+            embedded_seqs[seq_idx:seq_idx + chunk_size] = self.skipthoughts_module.encode(self.encoder, seqs[seq_idx:seq_idx + chunk_size], verbose=self.verbose)
         
         if type(seq_length) in (list, tuple, numpy.ndarray):
             #different lengths per sequence
@@ -754,7 +687,7 @@ class SkipthoughtsTransformer(SequenceTransformer):
 
 
 class WordEmbeddings():
-    def __init__(self, filepath):#, embs=None, lexicon=None):
+    def __init__(self, filepath):
         self.embs_filepath = filepath + "/embeddings.npy"
         self.lexicon_filepath = filepath + "/lexicon.pkl"
         self.embs = numpy.load(self.embs_filepath, mmap_mode='r')

@@ -246,7 +246,7 @@ class RNNBinaryPipeline(Pipeline):
         random_idxs = numpy.array([rng.choice(n_idxs, size=n_samples, replace=False) for seq in range(n_seqs)])
         return random_idxs
 
-    def fit(self, seqs1, seqs2, n_bkwrd=0, n_random=1, n_epochs=1, eval_fn=None, n_chunks=1):
+    def fit(self, seqs1, seqs2, n_bkwrd=0, n_random=1, n_epochs=1, eval_fn=None, chunk_size=2000):
 
         if self.classifier.filepath and not os.path.isdir(self.classifier.filepath):
             os.mkdir(self.classifier.filepath)
@@ -268,7 +268,7 @@ class RNNBinaryPipeline(Pipeline):
                 seqs1 = [self.transformer.text_to_nums(seq, reduce_emb_mode='sum') for seq in seqs1]
                 seqs2 = self.transformer.text_to_nums(seqs2)[:, None]
 
-        print("training model for", n_epochs, " epochs on", len(seqs1), "positive instances,", len(seqs1) * n_random, 
+        print("training model for", n_epochs, "epochs on", len(seqs1), "positive instances,", len(seqs1) * n_random, 
             "random negative instances, and", len(seqs1) * n_bkwrd, "backward negative instances")
 
         if not hasattr(self, 'best_accuracy'):
@@ -276,7 +276,7 @@ class RNNBinaryPipeline(Pipeline):
         for epoch in range(n_epochs):
             if n_epochs > 1:
                 print("EPOCH:", epoch + 1)
-            chunk_size = int(numpy.ceil(len(seqs1) * 1. / n_chunks))
+            #chunk_size = int(numpy.ceil(len(seqs1) * 1. / n_chunks))
             for chunk_idx in range(0, len(seqs1), chunk_size):
 
                 seqs1_chunk = seqs1[chunk_idx:chunk_idx + chunk_size]
@@ -315,6 +315,7 @@ class RNNBinaryPipeline(Pipeline):
                     if not hasattr(self, 'best_accuracy'):
                         self.best_accuracy = -numpy.inf
                     accuracy = eval_fn(self)
+                    print("validation accuracy:", accuracy)
                     if accuracy >= self.best_accuracy:
                         self.best_accuracy = accuracy
                         if self.classifier.filepath:
