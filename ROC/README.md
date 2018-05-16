@@ -5,7 +5,7 @@ This repository contains Python code that trains and evaluates a model that pred
 
 This code should run in both Python 2 and Python 3. It requires these libraries: [Keras](keras.io) with either the [TensorFlow](https://www.tensorflow.org/) or [Theano](http://deeplearning.net/software/theano/) backend, [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/).
 
-The model makes use of [skipthought vectors](https://github.com/ryankiros/skip-thoughts) to represent story sentences. You will need to download this repository. Follow the instructions given in their README. If you download the model and embedding files to the main directory of the repository, then specifically set the paths in skipthoughts.py to the following:
+The model makes use of [skipthought vectors](https://github.com/ryankiros/skip-thoughts) to represent story sentences. You will need to download this repository. Follow the instructions given in their README. If you download the model and embedding files to the main directory of the repository (e.g. skip-thoughts/), then specifically set the paths in skip-thoughts/skipthoughts.py to the following:
 
 ```
 path_to_models = os.path.dirname(os.path.realpath(__file__)) + "/"
@@ -14,7 +14,7 @@ path_to_tables = os.path.dirname(os.path.realpath(__file__)) + "/"
 
 When you run the code, you'll need to supply the location of this directory (see below).
 
-## Training
+### Training
 
 You can train a model from the command line by running story_cloze_test.py. In terms of required parameters, --train_seqs should be the path to a tab-separated (TSV) file containing the ROCStories dataset in same format as the original dataset that can be accessed [here]((http://cs.rochester.edu/nlp/rocstories/). The file ROC-Stories-example.tsv is included here in the datasets/ folder and shows an example of this format for 10 stories. Additionally you must specify the filepaths --val_seqs and --test_seqs corresponding to the validation and test sets of the cloze evaluation, respectively (also in TSV format). These can also be accessed through the given link, and there are examples given in datasets/. You must supply --save_filepath indicating the folder where the trained model will be saved. Finally, as mentioned above, you must indicate the filepath of the skipthoughts directory that contains all code and models associated with the skipthought vectors. Optionally, you can specify the number of "backward" sampled endings and "random" sampled endings that are used as negative training instances (see the above paper for what this means), and then the batch size, number of hidden layers, number of hidden dimensions, and number of training epochs for the classifier. By default, these values are set to those that produced the best result reported in the paper (see below).
 
@@ -92,6 +92,7 @@ You can then load the cloze items and evaluate the model on them, just as done i
 model = load_model("example_model", "skip-thoughts").
 test_input_seqs, test_output_choices, test_output_gold = get_cloze_data("dataset/cloze_test_example.tsv")
 test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, test_output_gold)
+```
 
 ### Performance on Story Cloze Test
 
