@@ -1,6 +1,10 @@
 from __future__ import print_function
-import pandas, argparse, numpy
+import pandas, argparse, numpy, sys
+sys.path.append('../')
+
 from models.pipeline import *
+from models.classifier import *
+from models.transformer import *
 
 def generate(context_seqs_file, model, save_filepath, gen_mode='random', temperature=1.0, n_gen_per_context=1, n_sents_per_seq=1, 
 			n_context_sents=-1, eos_tokens=[], detokenize=True, capitalize_ents=True, adapt_ents=True, batch_size=1000):
