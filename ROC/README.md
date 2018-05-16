@@ -1,5 +1,5 @@
 # RNN-based Binary Classifier for the ROC Story Cloze Test
-This repository contains Python code that trains and evaluates a model that predicts the endings of stories in the Story Cloze Test, using the corresponding ROCStories corpus for training (see [here](http://cs.rochester.edu/nlp/rocstories/) for details about the task and dataset). The code here implements the best-performing model described in the paper* [An RNN-based Binary Classifier for the Story Cloze Test](https://roemmele.github.io/publications/eacl2017_storyclozetest_cameraready.pdf). Very broadly speaking, this model represents stories according to vector (specifically, skipthought vector) representations of their sentences which are then encoded by a recurrent (GRU) neural layer. The top layer of the model is a binary classifier that is trained to distinguish "correct" endings for stories given in the ROCStories corpus from "incorrect" endings that are artificially generated from the same corpus. Here the incorrect endings are generated using the "random" and "backward" methods described in the paper. When applied to an item in the Story Cloze Test, the model predicts the probability of each candidate ending being correct for the given story, and selects the ending with the higher score. See the paper for more details.
+This repository contains Python code that trains and evaluates a model that predicts the endings of stories in the Story Cloze Test, using the corresponding ROCStories corpus for training (see [here](http://cs.rochester.edu/nlp/rocstories/) for details about the task and dataset). The code here implements the best-performing model<sup>*</sup> described in the paper [An RNN-based Binary Classifier for the Story Cloze Test](https://roemmele.github.io/publications/eacl2017_storyclozetest_cameraready.pdf). Very broadly speaking, this model represents stories according to vector (specifically, skipthought vector) representations of their sentences which are then encoded by a recurrent (GRU) neural layer. The top layer of the model is a binary classifier that is trained to distinguish "correct" endings for stories given in the ROCStories corpus from "incorrect" endings that are artificially generated from the same corpus. Here the incorrect endings are generated using the "random" and "backward" methods described in the paper. When applied to an item in the Story Cloze Test, the model predicts the probability of each candidate ending being correct for the given story, and selects the ending with the higher score. See the paper for more details.
 
 ## Dependencies
 
@@ -16,7 +16,7 @@ When you run the code, you'll need to supply the location of this directory (see
 
 ### Training
 
-You can train a model from the command line by running story_cloze_test.py. In terms of required parameters, --train_seqs should be the path to a tab-separated (TSV) file containing the ROCStories dataset in same format as the original dataset that can be accessed [here](http://cs.rochester.edu/nlp/rocstories/). The file ROC-Stories-example.tsv is included here in the datasets/ folder and shows an example of this format for 10 stories. Additionally you must specify the filepaths --val_seqs and --test_seqs corresponding to the validation and test sets of the cloze evaluation, respectively (also in TSV format). These can also be accessed through the given link, and there are examples given in datasets/. You must supply --save_filepath indicating the folder where the trained model will be saved. Finally, as mentioned above, you must indicate the filepath of the skipthoughts directory that contains all code and models associated with the skipthought vectors. Optionally, you can specify the number of "backward" sampled endings and "random" sampled endings that are used as negative training instances (see the above paper for what this means), and then the batch size, number of hidden layers, number of hidden dimensions, and number of training epochs for the classifier. By default, these values are set to those that produced the best result reported in the paper (see below).
+You can train a model from the command line by running story_cloze_test.py. In terms of required parameters, --train_seqs should be the path to a tab-separated (TSV) file containing the ROCStories dataset in same format as the original dataset that can be accessed [here](http://cs.rochester.edu/nlp/rocstories/). The file ROC-Stories-example.tsv is included here in the datasets/ folder and shows an example of this format for 10 stories. Additionally you must specify the filepaths --val_seqs and --test_seqs corresponding to the validation and test sets of the cloze evaluation, respectively (also in TSV format). These can also be accessed through the given link, and there are examples given in datasets/. You must supply --save_filepath indicating the folder where the trained model will be saved. Finally, as mentioned above, you must indicate the filepath of the skipthoughts directory that contains all code and models associated with the skipthought vectors. Optionally, you can specify the number of "backward" sampled endings and "random" sampled endings that are used as negative training instances (see the above paper for what this means), and then the batch size, number of hidden layers, number of hidden dimensions, and number of training epochs for the classifier. By default, these values are set to those that produced the best result reported in the paper: 2 backward endings, 4 random endings, 100 instances in batch, 1 hidden layer, 1000 hidden nodes, 10 epochs.
 
 During training, the skipthought vectors of the sentences in the training set are saved to disk (seqs1.npy and seqs2.npy in --save_filepath) in order to make it more efficient to dynamically load them into the model. Because of the size of the skipthought vectors, these are huge files (~15GB and ~4GB, respectively), so make sure you have enough disk space.
 
@@ -79,17 +79,11 @@ Here, skip-thoughts/ is in the same directory as where the script is being run, 
 
 ### Loading a trained model
 
-After training a model, you can reload it in a different Python session by specifying the filepath of the model as well as the skipthoughts model filepath:
+After training a model, you can reload it in a different Python session by specifying the filepath of the model as well as the skipthoughts filepath in the load_model() function. For example, to load the model trained above and evaluate it on the test cloze items, run:
 
 ```
 from story_cloze_test import *
-model = load_model(save_filepath, skip_filepath)
-```
-
-You can then load the cloze items and evaluate the model on them, just as done in story_cloze_test.py. For example:
-
-```
-model = load_model("example_model", "skip-thoughts").
+model = load_model(save_filepath="example_model", skip_filepath="skip-thoughts")
 test_input_seqs, test_output_choices, test_output_gold = get_cloze_data("dataset/cloze_test_example.tsv")
 test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, test_output_gold)
 ```
