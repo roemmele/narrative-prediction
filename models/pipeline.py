@@ -351,12 +351,6 @@ class EncoderDecoderPipeline(Pipeline):
         if not self.transformer.lexicon:
             self.transformer.make_lexicon(seqs1 + seqs2)
 
-        # if self.classifier.flat_input and self.classifier.embedded_input:
-        #     if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
-        #         seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
-        #     elif self.classifier.embedded_input:
-        #         seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
-        # else:
         seqs1 = self.transformer.text_to_nums(seqs1)
         seqs2 = self.transformer.text_to_nums(seqs2)
 
@@ -368,7 +362,6 @@ class EncoderDecoderPipeline(Pipeline):
                     print("EPOCH:", epoch + 1)
             if verbose:
                 print("training on", len(seqs1), "sequence pairs")
-            # chunk_size = int(numpy.ceil(len(seqs1) * 1. / eval_freq))
             for chunk_idx in range(0, len(seqs1), chunk_size):
                 self.classifier.fit(seqs1[chunk_idx:chunk_idx + chunk_size], seqs2[chunk_idx:chunk_idx + chunk_size], 
                                     n_timesteps=max_length, lexicon_size=self.transformer.lexicon_size,  
@@ -387,12 +380,7 @@ class EncoderDecoderPipeline(Pipeline):
 
     def predict(self, seqs1, seqs2):
         '''return a total score for the prob that seq2 follows seq1'''
-        # if self.classifier.flat_input and self.classifier.embedded_input:
-        #     if self.skip_vectorizer is not None: #input sequences will be transformer into flat vectors
-        #         seqs1 = self.skip_vectorizer.text_to_embs(seqs1)[:,0,:]
-        #     else:
-        #         seqs1 = self.transformer.text_to_embs(seqs1, reduce_emb_mode='sum')
-        # else:
+
         seqs1 = self.transformer.text_to_nums(seqs1)
         seqs2 = self.transformer.text_to_nums(seqs2)
 

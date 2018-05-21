@@ -51,9 +51,9 @@ if __name__ == '__main__':
                                                             Default is 4.", required=False, type=int, default=4)
     parser.add_argument("--recurrent", "-rec", help="Specify if the model should use RNN (GRU) layers. If not specified, feed-forward layers will be used.", required=False, action='store_true')
     parser.add_argument("--batch_size", "-batch", help="Specify number of sequences in batch during training. Default is 100.", required=False, type=int, default=100)
-    parser.add_argument("--n_encoder_layers", "-enc_lay", help="Specify number of layers in the encoder of the model. Default is 1.", required=False, type=int, default=1)
-    parser.add_argument("--n_decoder_layers", "-dec_lay", help="Specify number of layers in the decoder of the model. Default is 1.", required=False, type=int, default=1)
-    parser.add_argument("--n_dim", "-dim", help="Specify number of nodes in all of the encoder and decoder layers. Default is 500.", required=False, type=int, default=500)
+    # parser.add_argument("--n_encoder_layers", "-enc_lay", help="Specify number of layers in the encoder of the model. Default is 1.", required=False, type=int, default=1)
+    # parser.add_argument("--n_decoder_layers", "-dec_lay", help="Specify number of layers in the decoder of the model. Default is 1.", required=False, type=int, default=1)
+    parser.add_argument("--n_hidden_nodes", "-hid", help="Specify number of dimensions in the encoder and decoder layers. Default is 500.", required=False, type=int, default=500)
     parser.add_argument("--n_epochs", "-epoch", help="Specify the number of epochs the model should be trained for. Default is 50.", required=False, type=int, default=50)
     parser.add_argument("--chunk_size", "-chunk", help="If dataset is large, specify this parameter to load training sequences in chunks of this size instead of all at once to avoid memory issues.\
                                                          For smaller datasets (e.g. the ROCStories corpus), it is much faster to load entire dataset prior to training. This will be done by default\
@@ -67,7 +67,7 @@ if __name__ == '__main__':
                                     include_tags=['JJ', 'JJR', 'JJS', 'NN', 'NNS', 'RB', 'RBR', 'RBS', 'RP', #lemmatize segments and filter grammatical words
                                                     'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ'])
 
-    classifier = EncoderDecoder(filepath=args.save_filepath, recurrent=args.recurrent, batch_size=args.batch_size)
+    classifier = EncoderDecoder(filepath=args.save_filepath, recurrent=args.recurrent, batch_size=args.batch_size, n_hidden_nodes=args.n_hidden_nodes)
     model = EncoderDecoderPipeline(transformer, classifier)
 
     if args.chunk_size: #load training data in chunks
@@ -75,10 +75,12 @@ if __name__ == '__main__':
             for seqs in get_seqs(args.train_seqs, chunk_size=args.chunk_size):
                 transformer.make_lexicon(seqs)
 
-        for seqs in get_seqs(args.train_seqs, chunk_size=args.chunk_size):
-            seq_pairs = get_adj_sent_pairs(seqs, segment_clauses=False if args.segment_sents else True, max_distance=args.max_pair_distance, max_sent_length=args.max_length)
-            model.fit(seqs1=[pair[0] for pair in seq_pairs], seqs2=[pair[1] for pair in seq_pairs], max_length=args.max_length,
-                        eval_fn=lambda model: eval_copa(model, data_filepath=args.val_items), n_epochs=args.n_epochs)
+        for epoch in range(args.n_epochs):
+            print("EPOCH:", epoch + 1)
+            for seqs in get_seqs(args.train_seqs, chunk_size=args.chunk_size):
+                seq_pairs = get_adj_sent_pairs(seqs, segment_clauses=False if args.segment_sents else True, max_distance=args.max_pair_distance, max_sent_length=args.max_length)
+                model.fit(seqs1=[pair[0] for pair in seq_pairs], seqs2=[pair[1] for pair in seq_pairs], max_length=args.max_length,
+                            eval_fn=lambda model: eval_copa(model, data_filepath=args.val_items), n_epochs=1)
 
     else: #load entire training data at once
         seqs = get_seqs(args.train_seqs, chunk_size=None)
