@@ -83,7 +83,7 @@ After training a model, you can reload it in a different Python session by speci
 
 ```
 from story_cloze_test import *
-model = load_model(save_filepath="example_model", skip_filepath="skip-thoughts")
+model = load_model(filepath="example_model", skip_filepath="skip-thoughts")
 test_input_seqs, test_output_choices, test_output_gold = get_cloze_data("dataset/cloze_test_example.tsv")
 test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, test_output_gold)
 ```
