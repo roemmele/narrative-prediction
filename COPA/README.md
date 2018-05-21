@@ -21,7 +21,7 @@ python encoder_decoder.py [-h] --train_seqs TRAIN_SEQS --val_items VAL_ITEMS
                           [--n_hidden_nodes N_HIDDEN_NODES]
                           [--n_epochs N_EPOCHS] [--chunk_size CHUNK_SIZE]
 ```
-## Parameters:
+### Parameters:
 ```
   --train_seqs TRAIN_SEQS, -train TRAIN_SEQS
                         Specify filename (.csv) containing text used as
@@ -78,7 +78,7 @@ python encoder_decoder.py [-h] --train_seqs TRAIN_SEQS --val_items VAL_ITEMS
                         faster to load entire dataset prior to training. This
                         will be done by default if chunk size is not given.
 ```
-## Example
+### Example
 ```
 python encoder_decoder.py --train_seqs dataset/stories-example.csv --val_items dataset/copa-dev.xml --test_items dataset/copa-test.xml --save_filepath example_model
 ```

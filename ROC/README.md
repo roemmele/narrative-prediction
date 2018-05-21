@@ -32,7 +32,7 @@ python story_cloze_test.py [-h] --train_seqs TRAIN_SEQS --val_items VAL_ITEMS
                            [--n_hidden_nodes N_HIDDEN_NODES]
                            [--n_epochs N_EPOCHS]
 ```
-## Parameters:
+### Parameters:
 ```
   --train_seqs TRAIN_SEQS, -train TRAIN_SEQS
                         Specify filename (.tsv) containing ROCStories used as
@@ -70,7 +70,7 @@ python story_cloze_test.py [-h] --train_seqs TRAIN_SEQS --val_items VAL_ITEMS
                         Specify the number of epochs the model should be
                         trained for. Default is 10.
 ```
-## Example
+### Example
 ```
 python story_cloze_test.py --train_seqs dataset/ROC-Stories-example.tsv --val_items dataset/cloze_val_example.tsv --test_items dataset/cloze_test_example.tsv --save_filepath example_model --skip_filepath skip-thoughts
 ```
