@@ -14,7 +14,7 @@ path_to_tables = os.path.dirname(os.path.realpath(__file__)) + "/"
 
 When you run the code, you'll need to supply the location of the skip-thoughts/ directory (see below).
 
-### Training
+## Training
 
 You can train a model from the command line by running story_cloze_test.py. In terms of required parameters, --train_seqs should be the path to a tab-separated (TSV) file containing the ROCStories dataset in same format as the original dataset that can be accessed [here](http://cs.rochester.edu/nlp/rocstories/). The file ROC-Stories-example.tsv is included here in the datasets/ folder and shows an example of this format for 10 stories. Additionally you must specify the filepaths --val_seqs and --test_seqs corresponding to the validation and test sets of the cloze evaluation, respectively (also in TSV format). These can also be accessed through the given link, and there are examples given in datasets/. You must supply --save_filepath indicating the folder where the trained model will be saved. Finally, as mentioned above, you must indicate the filepath of the skipthoughts directory that contains all code and models associated with the skipthought vectors. Optionally, you can specify the number of "backward" sampled endings and "random" sampled endings that are used as negative training instances (see the above paper for what this means), and then the batch size, number of hidden layers, number of hidden dimensions, and number of training epochs for the classifier. By default, these values are set to those that produced the best result reported in the paper: 2 backward endings, 4 random endings, 100 instances in batch, 1 hidden layer, 1000 hidden nodes, 10 epochs.
 
@@ -32,7 +32,7 @@ python story_cloze_test.py [-h] --train_seqs TRAIN_SEQS --val_items VAL_ITEMS
                            [--n_hidden_nodes N_HIDDEN_NODES]
                            [--n_epochs N_EPOCHS]
 ```
-### Parameters:
+## Parameters:
 ```
   --train_seqs TRAIN_SEQS, -train TRAIN_SEQS
                         Specify filename (.tsv) containing ROCStories used as
@@ -70,14 +70,14 @@ python story_cloze_test.py [-h] --train_seqs TRAIN_SEQS --val_items VAL_ITEMS
                         Specify the number of epochs the model should be
                         trained for. Default is 10.
 ```
-### Example
+## Example
 ```
 python story_cloze_test.py --train_seqs dataset/ROC-Stories-example.tsv --val_items dataset/cloze_val_example.tsv --test_items dataset/cloze_test_example.tsv --save_filepath example_model --skip_filepath skip-thoughts
 ```
 
 Here, skip-thoughts/ is in the same directory as where the script is being run, for example. After training, the example_model/ folder will contain the trained model files classifier.pkl and classifier.h5.
 
-### Loading a trained model
+## Loading a trained model
 
 After training a model, you can reload it in a different Python session by specifying the filepath of the model as well as the skipthoughts filepath in the load_model() function. For example, to load the example model from above and evaluate it on the test cloze items, run:
 
@@ -88,7 +88,7 @@ test_input_seqs, test_output_choices, test_output_gold = get_cloze_data("dataset
 test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, test_output_gold)
 ```
 
-### Results
+## Results
 
 As reported in the paper, when trained on all 97,027 stories in the ROCStories corpus, this approach with the default parameters defined here obtained 66.2% accuracy on the validation set of the Story Cloze Test and 66.9% on the test set.
 
