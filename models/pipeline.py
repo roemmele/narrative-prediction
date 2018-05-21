@@ -276,7 +276,6 @@ class RNNBinaryPipeline(Pipeline):
         for epoch in range(n_epochs):
             if n_epochs > 1:
                 print("EPOCH:", epoch + 1)
-            #chunk_size = int(numpy.ceil(len(seqs1) * 1. / n_chunks))
             for chunk_idx in range(0, len(seqs1), chunk_size):
 
                 seqs1_chunk = seqs1[chunk_idx:chunk_idx + chunk_size]
@@ -347,7 +346,7 @@ class RNNBinaryPipeline(Pipeline):
 
 class EncoderDecoderPipeline(Pipeline):
 
-    def fit(self, seqs1, seqs2, max_length=25, n_epochs=1, eval_fn=None, eval_freq=1, verbose=True): 
+    def fit(self, seqs1, seqs2, max_length=25, n_epochs=1, eval_fn=None, chunk_size=200000, verbose=True): 
 
         if not self.transformer.lexicon:
             self.transformer.make_lexicon(seqs1 + seqs2)
@@ -369,7 +368,7 @@ class EncoderDecoderPipeline(Pipeline):
                     print("EPOCH:", epoch + 1)
             if verbose:
                 print("training on", len(seqs1), "sequence pairs")
-            chunk_size = int(numpy.ceil(len(seqs1) * 1. / eval_freq))
+            # chunk_size = int(numpy.ceil(len(seqs1) * 1. / eval_freq))
             for chunk_idx in range(0, len(seqs1), chunk_size):
                 self.classifier.fit(seqs1[chunk_idx:chunk_idx + chunk_size], seqs2[chunk_idx:chunk_idx + chunk_size], 
                                     n_timesteps=max_length, lexicon_size=self.transformer.lexicon_size,  
