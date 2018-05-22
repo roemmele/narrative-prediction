@@ -3,6 +3,8 @@ This repository contains Python code that trains and evaluates a model that pred
 
 ## Dependencies
 
+To run this, clone the entire narrative-prediction repository and navigate to this directory (ROC/). 
+
 This code should run in both Python 2 and Python 3. It requires these libraries: [Keras](keras.io) with either the [TensorFlow](https://www.tensorflow.org/) or [Theano](http://deeplearning.net/software/theano/) backend, [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/).
 
 The model makes use of [skipthought vectors](https://github.com/ryankiros/skip-thoughts) to represent story sentences. You will need to download the repository in that link. Follow the instructions given in their README. If you download the model and embedding files to the main directory of the repository (i.e. skip-thoughts/), then specifically set the paths in skip-thoughts/skipthoughts.py to the following:
