@@ -1,10 +1,14 @@
 from __future__ import print_function
 import pandas, argparse, numpy, sys
+import theano
+import theano.tensor as T
 sys.path.append('../')
 
 from models.pipeline import *
 from models.classifier import *
 from models.transformer import *
+
+theano_rng = T.shared_randomstreams.RandomStreams(123)
 
 def load_train_seqs(train_seqs_file, chunk_size=10000):
 	#create generator object to read sequences in chunks (in case too many to fit in memory)

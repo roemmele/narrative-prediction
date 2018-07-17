@@ -1,7 +1,5 @@
 from __future__ import print_function
 import timeit, numpy, pickle, os, copy
-import theano
-import theano.tensor as T
 from keras.models import Sequential, Model, load_model
 from keras.layers import *
 from keras.layers.merge import *
@@ -14,8 +12,6 @@ import keras.backend as K
 from scipy.spatial.distance import cosine
 
 rng = numpy.random.RandomState(0)
-theano_rng = T.shared_randomstreams.RandomStreams(123)
-
 
 class SavedModel():
     def save(self):
