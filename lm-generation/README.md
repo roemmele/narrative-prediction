@@ -5,7 +5,7 @@ This repository contains Python code that uses Keras to train a Recurrent Neural
 
 To run this, clone the entire narrative-prediction repository and navigate to this directory (lm-generation/). 
 
-I developed this code in Python 2.7 but I briefly tested in Python 3.6, so hopefully it will run in both. It requires these libraries: [Keras](keras.io), [Theano](http://deeplearning.net/software/theano/), [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/).
+I developed this code in Python 2.7 but I briefly tested in Python 3.6, so hopefully it will run in both. It requires these libraries: [Keras](keras.io), [Theano](http://deeplearning.net/software/theano/), [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/). For spaCy, you will also need to download the en_core_web_md model by running "python -m spacy download en_core_web_md" (see [here](https://spacy.io/models/en#en_core_web_md)).
 
 ## Training
 
