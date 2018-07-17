@@ -218,6 +218,9 @@ class RNNLM(SavedModel):
     def __init__(self, use_features=False, use_pos=False, lexicon_size=None, n_pos_tags=None, n_timesteps=15, n_embedding_nodes=300, n_pos_embedding_nodes=25,
                 n_pos_nodes=100, n_feature_nodes=100, n_hidden_nodes=250, n_hidden_layers=1, embeddings=None, batch_size=1, verbose=1, filepath=None, optimizer='Adam',
                 lr=0.001, clipvalue=5.0, decay=1e-6):
+        import theano
+        import theano.tensor as T
+        theano_rng = T.shared_randomstreams.RandomStreams(123)
         
         self.lexicon_size = lexicon_size
         self.n_pos_tags = n_pos_tags
