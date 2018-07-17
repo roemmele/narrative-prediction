@@ -94,7 +94,7 @@ test_accuracy = evaluate_roc_cloze(model, test_input_seqs, test_output_choices, 
 
 As reported in the paper, when trained on all 97,027 stories in the ROCStories corpus, this approach with the default parameters defined here obtained 66.2% accuracy on the validation set of the Story Cloze Test and 66.9% on the test set.
 
-<sup>*There was one result that was trivially higher (statistically insignificant) which used additional methods for generating incorrect endings beyond the random/backward methods. It is not represented here. </sup>
+*<sup>There was one result that was trivially higher (statistically insignificant) which used additional methods for generating incorrect endings beyond the random/backward methods. It is not represented here. </sup>
 
 
 
