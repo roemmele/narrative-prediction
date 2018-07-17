@@ -5,7 +5,7 @@ This repository contains Python code that trains and evaluates a model that pred
 
 To run this, clone the entire narrative-prediction repository and navigate to this directory (COPA/). 
 
-This code should run in both Python 2 and Python 3. It requires these libraries: [Keras](keras.io) with either the [TensorFlow](https://www.tensorflow.org/) or [Theano](http://deeplearning.net/software/theano/) backend, [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/).
+This code should run in both Python 2 and Python 3. It requires these libraries: [Keras](keras.io) with either the [TensorFlow](https://www.tensorflow.org/) or [Theano](http://deeplearning.net/software/theano/) backend, [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/). For spaCy, you will also need to download the en_core_web_md model by running "python -m spacy download en_core_web_md" (see [here](https://spacy.io/models/en#en_core_web_md)).
 
 ## Training
 
