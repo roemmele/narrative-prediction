@@ -20,11 +20,8 @@ def load_copa(filepath=None):
         modes.append(mode)
         answer = int(item.attrib["most-plausible-alternative"]) - 1 #answers are 1 and 2, convert to 0 and 1 
         answers.append(answer)
-        # premise = unicode(item.find("p").text, 'utf-8')
         premise = item.find("p").text
         premises.append(premise)
-        # alt1 = unicode(item.find("a1").text, 'utf-8')
-        # alt2 = unicode(item.find("a2").text, 'utf-8')
         alt1 = item.find("a1").text
         alt2 = item.find("a2").text
         alts.append([alt1, alt2])
