@@ -92,12 +92,13 @@ train_model(train_seqs='example_stories.csv', model, n_epochs=10)
 Generation works by taking an initial sequence (context) and producing one or more sequences intended to follow it in the text. To use a trained model to perform this task for a given set of context sequences, you can run generate_sequences.py. The --context_seqs parameter should be the path to a text file with one sequence per line (same format as the train sequences file), as can be seen in the example_contexts.csv file included here. You'll also need to supply --model_filepath, the folder where the trained model files were saved, as well as --save_filepath, the .csv filepath where the generated sequences will be saved. In the case that multiple sequences per context are generated, they will be comma-separated on a single line such that each line of generated sequences corresponds to the position their context sequence appears in the file. 
 
 ```
-python generate_sequences.py --context_seqs CONTEXT_SEQS --model_filepath
-                             MODEL_FILEPATH --save_prefix SAVE_PREFIX
+python generate_sequences.py [-h] --context_seqs CONTEXT_SEQS --model_filepath
+                             MODEL_FILEPATH --save_filepath SAVE_FILEPATH
                              [--gen_mode {random,max}]
                              [--temperature TEMPERATURE]
                              [--n_gen_per_context N_GEN_PER_CONTEXT]
                              [--n_sents_per_seq N_SENTS_PER_SEQ]
+                             [--n_context_sents N_CONTEXT_SENTS]
                              [--eos_tokens EOS_TOKENS [EOS_TOKENS ...]]
 ```
 ### Parameters:
@@ -105,8 +106,8 @@ python generate_sequences.py --context_seqs CONTEXT_SEQS --model_filepath
   --context_seqs CONTEXT_SEQS, -cont CONTEXT_SEQS
                         Specify filename (.csv) containing context sequences.
   --model_filepath MODEL_FILEPATH, -modfp MODEL_FILEPATH
-                        Specify the filepath where the trained model is
-                        stored.
+                        Specify the filepath directory where the trained model
+                        is stored.
   --save_filepath SAVE_FILEPATH, -save SAVE_FILEPATH
                         Specify the .csv filename where the generated
                         sequences should be saved.
@@ -128,12 +129,12 @@ python generate_sequences.py --context_seqs CONTEXT_SEQS --model_filepath
                         the number of sentences. Default is one sentence per
                         sequence.
   --n_context_sents N_CONTEXT_SENTS, -ncont N_CONTEXT_SENTS
-  		    	Specify if the context should be truncated so that
-			only the N most recent sentences are taken into
-			account when generating the next sequence. If the
-			model uses feature vectors, the features will still
-			take into account the whole context. Default is -1,
-			which means all context sentences will be included.
+                        Specify if the context should be truncated so that
+                        only the N most recent sentences are taken into
+                        account when generating the next sequence. If the
+                        model uses feature vectors, the features will still
+                        take into account the whole context. Default is -1,
+                        which means all context sentences will be included.
   --eos_tokens EOS_TOKENS [EOS_TOKENS ...], -eos EOS_TOKENS [EOS_TOKENS ...]
                         If sentence boundaries should be determined by the
                         occurence of specific end-of-sentence tokens, specify
