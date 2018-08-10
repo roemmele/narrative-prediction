@@ -5,9 +5,9 @@ This repository contains Python code that uses Keras to train a Recurrent Neural
 
 To run this, clone the entire narrative-prediction repository and navigate to this directory (lm-generation/). 
 
-I developed this code in Python 2.7 but I briefly tested in Python 3.6, so hopefully it will run in both. It requires these libraries: [Keras](keras.io), [Theano\*](http://deeplearning.net/software/theano/), [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/). For spaCy, you will also need to download the en_core_web_md model by running "python -m spacy download en_core_web_md" (see [here](https://spacy.io/models/en#en_core_web_md)). 
+This code should run in both Python 2 (>= 2.7) and Python 3. It requires these libraries: [Keras](keras.io), [numpy](numpy.org), [pandas](http://pandas.pydata.org/), [h5py](http://www.h5py.org/), and [spaCy](https://spacy.io/). For spaCy, you will also need to download the en_core_web_md model by running "python -m spacy download en_core_web_md" (see [here](https://spacy.io/models/en#en_core_web_md)). 
 
-\*<sup>Ideally, you'd be able to use the TensorFlow backend of Keras instead of Theano, but the code that does the generation by sampling from the LM probability distribution is written directly in Theano for the purpose of speed (see the pred_batch_next_words() method for the RNNLM class in models/classifier.py). Eventually I will try to remove this dependency since Theano is no longer actively being developed.</sup>
+<!-- \*<sup>Ideally, you'd be able to use the TensorFlow backend of Keras instead of Theano, but the code that does the generation by sampling from the LM probability distribution is written directly in Theano for the purpose of speed (see the pred_batch_next_words() method for the RNNLM class in models/classifier.py). Eventually I will try to remove this dependency since Theano is no longer actively being developed.</sup> -->
 
 ## Training
 
