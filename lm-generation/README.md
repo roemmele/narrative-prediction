@@ -1,5 +1,5 @@
 # lm-generation
-This repository contains Python code that uses Keras to train a Recurrent Neural Network language model and generate new sequences using the model. This work specifically focuses on models that generate a continuation of given sequence (e.g. given the beginning of a story, generate the next sentence in the story). This code is associated with the models described in the papers: [Evaluating Story Generation Systems Using Automated Linguistic Analyses](https://roemmele.github.io/publications/fiction_generation.pdf), [Automated Assistance for Creative Writing with an RNN Language Model](https://roemmele.github.io/publications/creative-help-demo.pdf), and [Linguistic Features of Helpfulness in Automated Support for Creative Writing](https://roemmele.github.io/publications/creative-help-evaluation.pdf). This code is also currently integrated into the [Creative Help](https://fiction.ict.usc.edu/creativehelp/) application that provides automated assistance for story writing.
+This repository contains Python code that uses Keras to train a Recurrent Neural Network language model and generate new sequences using the model. This work specifically focuses on models that generate a continuation of given sequence (e.g. given the beginning of a story, generate the next sentence in the story). This code is associated with the models described in the papers: [Evaluating Story Generation Systems Using Automated Linguistic Analyses](https://roemmele.github.io/publications/fiction_generation.pdf), [Automated Assistance for Creative Writing with an RNN Language Model](https://roemmele.github.io/publications/creative-help-demo.pdf), and [Linguistic Features of Helpfulness in Automated Support for Creative Writing](https://roemmele.github.io/publications/creative-help-evaluation.pdf). This code is also currently integrated into the [Creative Help](https://fiction.ict.usc.edu/creativehelp/) application that provides automated assistance for story writing. See below for instructions on using the already-trained Creative Help model to generate sequences.
 
 ## Dependencies
 
@@ -86,10 +86,13 @@ from train_generation import *
 model = create_model(save_filepath='example_model', use_features=False, use_pos=False, min_freq=5, 
                     generalize_ents=False, batch_size=25, n_timesteps=15, n_hidden_layers=2, 
                     n_embedding_nodes=300, n_hidden_nodes=500, n_pos_nodes=100, n_feature_nodes=100)
-train_model(train_seqs='example_stories.csv', model, n_epochs=10)
+train_model(train_seqs='example_stories.txt', model, n_epochs=10)
 ```
 ## Generating
-Generation works by taking an initial sequence (context) and producing one or more sequences intended to follow it in the text. To use a trained model to perform this task for a given set of context sequences, you can run generate_sequences.py. The --context_seqs parameter should be the path to a text file with one sequence per line (same format as the train sequences file), as can be seen in the example_contexts.csv file included here. You'll also need to supply --model_filepath, the folder where the trained model files were saved, as well as --save_filepath, the .csv filepath where the generated sequences will be saved. In the case that multiple sequences per context are generated, they will be comma-separated on a single line such that each line of generated sequences corresponds to the position their context sequence appears in the file. 
+Generation works by taking an initial sequence (context) and producing one or more sequences intended to follow it in the text. To use a trained model to perform this task for a given set of context sequences, you can run generate_sequences.py. The --context_seqs parameter should be the path to a text file with one sequence per line (same format as the train sequences file), as can be seen in the example_contexts.txt file included here. You'll also need to supply --model_filepath, the folder where the trained model files were saved, as well as --save_filepath, the .csv filepath where the generated sequences will be saved. In the case that multiple sequences per context are generated, they will be comma-separated on a single line such that each line of generated sequences corresponds to the position their context sequence appears in the file. 
+
+We trained a model on approximately 8,000 books in the Toronto BookCorpus dataset. This is the model that is currently demoed in Creative Help. You can download this model [here](https://drive.google.com/file/d/1nnaBzAoAJnFXXwHMVNyADMtiRr8UcAAB/view?usp=sharing) and use it in place of the example model included here.
+
 
 ```
 python generate_sequences.py [-h] --context_seqs CONTEXT_SEQS --model_filepath
@@ -144,7 +147,7 @@ python generate_sequences.py [-h] --context_seqs CONTEXT_SEQS --model_filepath
 ```
 ### Example
 ```
-python generate_sequences.py --context_seqs example_contexts.csv --model_filepath example_model/ --save_filepath example_generated.csv
+python generate_sequences.py --context_seqs example_contexts.txt --model_filepath example_model/ --save_filepath example_generated.csv
 ```
 This is equivalent to running the Python code:
 ```
