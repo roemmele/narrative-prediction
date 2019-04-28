@@ -372,11 +372,11 @@ class RNNLM(SavedModel):
             batch = get_seq_batch(seqs=seqs[batch_index:batch_index + self.batch_size],
                                   batch_size=self.batch_size, n_timesteps=self.n_timesteps)  # prep batch
             if self.use_pos:
-                batch_pos = get_seq_batch(seqs=pos_seqs[
-                                          batch_index:batch_index + self.batch_size], batch_size=self.batch_size, n_timesteps=self.n_timesteps)
+                batch_pos = get_seq_batch(seqs=pos_seqs[batch_index:batch_index + self.batch_size],
+                                          batch_size=self.batch_size, n_timesteps=self.n_timesteps)
             if self.use_features:
-                batch_features = get_batch_features(
-                    features=feature_vecs[batch_index:batch_index + self.batch_size], batch_size=self.batch_size)
+                batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + self.batch_size],
+                                                    batch_size=self.batch_size)
                 batch_inputs.append(batch_features)
             for step_index in range(0, batch.shape[-1] - 1, self.n_timesteps):
                 batch_x = batch[:, step_index:step_index + self.n_timesteps]
@@ -388,11 +388,9 @@ class RNNLM(SavedModel):
                 batch_outputs = [batch_y]
                 if self.use_pos:
                     batch_pos_x = batch_pos[:, step_index:step_index + self.n_timesteps]
-                    batch_pos_y = batch_pos[:, step_index +
-                                            1:step_index + self.n_timesteps + 1, None]
-                    if not numpy.sum(batch_pos_x):
-                        import pdb
-                        pdb.set_trace()
+                    batch_pos_y = batch_pos[:,
+                                            step_index + 1:step_index + self.n_timesteps + 1,
+                                            None]
                     batch_inputs.append(batch_pos_x)
                     batch_outputs.append(batch_pos_y)
                 if self.use_features:
@@ -489,7 +487,15 @@ class RNNLM(SavedModel):
         '''check if predictor (generation) model exists; if not, create it; n_timesteps will always be 1 since generating one word at a time'''
 
         if not hasattr(self, 'pred_model') or batch_size != self.pred_model.layers[0].batch_input_shape[0]:
+            '''Completely reload the model from disk even though it's already loaded.
+            This is a hack to avoid threading issues that cause an error when models are loaded in different threads'''
+            K.clear_session()
+            self.model = load_model(self.filepath + '/classifier.h5')
+            self.model._make_predict_function()
+            # Transfer weights from trained model to new model used for generation
             self.pred_model = self.create_model(batch_size=batch_size, n_timesteps=1)
+            self.pred_model.set_weights(self.model.get_weights())
+            self.pred_model._make_predict_function()
             if self.verbose:
                 print("created predictor model")
 
@@ -503,21 +509,18 @@ class RNNLM(SavedModel):
 
         for batch_index in range(0, len(seqs), batch_size):
             batch_features = None
-            batch_seqs = get_seq_batch(
-                seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)  # prep batch
+            batch_seqs = get_seq_batch(seqs=seqs[batch_index:batch_index + batch_size],
+                                       batch_size=batch_size)  # prep batch
             if self.use_features:
-                batch_features = get_batch_features(
-                    features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
+                batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size],
+                                                    batch_size=batch_size)
 
-            # batch_pos[:,:-1] if self.use_pos else None,
             self.read_batch(seqs=batch_seqs, features=batch_features)
 
             batch_pred_seqs = numpy.zeros((batch_size, max_length), dtype='int64')
 
-            # p_next_words = init_p_next_words
-            # pos=batch_pos[:,-1] if self.use_pos else None
-            p_next_words = self.get_batch_p_next_words(
-                words=batch_seqs[:, -1], features=batch_features)
+            p_next_words = self.get_batch_p_next_words(words=batch_seqs[:, -1],
+                                                       features=batch_features)
 
             for idx in range(max_length):  # now predict
                 next_words, p_next_words = self.pred_batch_next_words(
@@ -528,8 +531,10 @@ class RNNLM(SavedModel):
 
             self.pred_model.reset_states()
 
-            batch_pred_seqs = batch_seqs_to_list(batch_seqs=batch_pred_seqs, len_batch=len(
-                seqs[batch_index:batch_index + batch_size]), batch_size=batch_size)
+            batch_pred_seqs = batch_seqs_to_list(batch_seqs=batch_pred_seqs,
+                                                 len_batch=len(
+                                                     seqs[batch_index:batch_index + batch_size]),
+                                                 batch_size=batch_size)
             pred_seqs.extend(batch_pred_seqs)
 
             if batch_index and batch_index % 1000 == 0:
@@ -545,8 +550,10 @@ class RNNLM(SavedModel):
         p_next_words = numpy.zeros((seqs.shape[0], seqs.shape[-1] - 1))
 
         for idx in range(seqs.shape[-1] - 1):  # read in given sequence from which to predict
-            p_next_words[:, idx] = self.get_batch_p_next_words(words=seqs[:, idx], pos=pos[:, idx]
-                                                               if self.use_pos else None, features=features)[numpy.arange(len(seqs)), seqs[:, idx + 1]]
+            p_next_words[:, idx] = self.get_batch_p_next_words(words=seqs[:, idx],
+                                                               pos=pos[:, idx]
+                                                               if self.use_pos else None,
+                                                               features=features)[numpy.arange(len(seqs)), seqs[:, idx + 1]]
 
         return p_next_words
 
@@ -558,17 +565,18 @@ class RNNLM(SavedModel):
         for batch_index in range(0, len(seqs), batch_size):
             batch_features = None
             batch_pos = None
-            batch_seqs = get_seq_batch(
-                seqs=seqs[batch_index:batch_index + batch_size], batch_size=batch_size)  # prep batch
+            batch_seqs = get_seq_batch(seqs=seqs[batch_index:batch_index + batch_size],
+                                       batch_size=batch_size)  # prep batch
             if self.use_pos:
-                batch_pos = get_seq_batch(
-                    seqs=pos_seqs[batch_index:batch_index + batch_size], batch_size=batch_size)
+                batch_pos = get_seq_batch(seqs=pos_seqs[batch_index:batch_index + batch_size],
+                                          batch_size=batch_size)
             if self.use_features:
-                batch_features = get_batch_features(
-                    features=feature_vecs[batch_index:batch_index + batch_size], batch_size=batch_size)
+                batch_features = get_batch_features(features=feature_vecs[batch_index:batch_index + batch_size],
+                                                    batch_size=batch_size)
 
-            p_next_words = self.read_batch(
-                seqs=batch_seqs, pos=batch_pos if self.use_pos else None, features=batch_features)
+            p_next_words = self.read_batch(seqs=batch_seqs,
+                                           pos=batch_pos if self.use_pos else None,
+                                           features=batch_features)
             p_next_words = numpy.log(p_next_words)
             len_seqs = [len(seq) for seq in seqs[batch_index:batch_index + batch_size]]
             # remove padding from each sequence and before computing mean
@@ -686,17 +694,17 @@ class MLPBinaryClassifier(SavedModel):
             losses = []
             print("EPOCH:", epoch + 1)
             for batch_idx in range(0, len(seqs1), self.batch_size):
-                batch_seqs1 = get_vector_batch(
-                    seqs1[batch_idx:batch_idx + self.batch_size], vector_length=self.lexicon_size + 1)
-                batch_seqs2 = get_vector_batch(
-                    seqs2[batch_idx:batch_idx + self.batch_size], vector_length=self.lexicon_size + 1)
+                batch_seqs1 = get_vector_batch(seqs1[batch_idx:batch_idx + self.batch_size],
+                                               vector_length=self.lexicon_size + 1)
+                batch_seqs2 = get_vector_batch(seqs2[batch_idx:batch_idx + self.batch_size],
+                                               vector_length=self.lexicon_size + 1)
                 batch_labels = labels[batch_idx:batch_idx + self.batch_size]
                 losses.append(self.model.train_on_batch([batch_seqs1, batch_seqs2], batch_labels))
                 if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
-                    print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(
-                        numpy.array(losses)[:, 0]), numpy.mean(numpy.array(losses)[:, 1])))
-            print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(
-                numpy.array(losses)[:, 0]), numpy.mean(numpy.array(losses)[:, 1])))
+                    print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(numpy.array(losses)[:, 0]),
+                                                                  numpy.mean(numpy.array(losses)[:, 1])))
+            print("loss: {:.3f}, accuracy: {:.3f}".format(numpy.mean(numpy.array(losses)[:, 0]),
+                                                          numpy.mean(numpy.array(losses)[:, 1])))
 
         if self.filepath:
             self.save()
@@ -729,17 +737,17 @@ class RNNBinaryClassifier(SavedModel):
     def create_model(self, ranking=False, use_dropout=False):
 
         ####################CURRENT METHOD######################
-        context_input_layer = Input(batch_shape=(
-            self.batch_size, self.n_input_sents, self.n_embedding_nodes), name="context_input_layer")
+        context_input_layer = Input(batch_shape=(self.batch_size, self.n_input_sents, self.n_embedding_nodes),
+                                    name="context_input_layer")
 
-        seq_input_layer = Input(batch_shape=(
-            self.batch_size, 1, self.n_embedding_nodes), name="seq_input_layer")
+        seq_input_layer = Input(batch_shape=(self.batch_size, 1, self.n_embedding_nodes),
+                                name="seq_input_layer")
 
         merge_layer = merge([context_input_layer, seq_input_layer],
                             mode='concat', concat_axis=-2, name='merge_layer')
 
-        mask_layer = Masking(mask_value=0.0, input_shape=(
-            self.n_input_sents + 1, self.n_embedding_nodes))(merge_layer)
+        mask_layer = Masking(mask_value=0.0,
+                             input_shape=(self.n_input_sents + 1, self.n_embedding_nodes))(merge_layer)
 
         hidden_layer = GRU(output_dim=self.n_hidden_nodes, return_sequences=False,
                            stateful=False, name='context_hidden_layer')(mask_layer)  # (merge_layer)
@@ -787,8 +795,8 @@ class RNNBinaryClassifier(SavedModel):
                 batch_seqs1 = numpy.array(seqs1[batch_idx:batch_idx + self.batch_size])
                 batch_seqs2 = numpy.array(seqs2[batch_idx:batch_idx + self.batch_size])
                 batch_labels = labels[batch_idx:batch_idx + self.batch_size]
-                losses.append(self.model.train_on_batch(
-                    x=[batch_seqs1, batch_seqs2], y=batch_labels))
+                losses.append(self.model.train_on_batch(x=[batch_seqs1, batch_seqs2],
+                                                        y=batch_labels))
                 if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
                     print("loss: {:.7f}".format(numpy.mean(numpy.array(losses))))
             print("loss: {:.7f}".format(numpy.mean(numpy.array(losses))))
@@ -853,8 +861,9 @@ class MLPLM(SavedModel):
         model.add(Reshape((self.n_embedding_nodes * n_timesteps,)))
 
         for layer_num in range(self.n_hidden_layers):
-            model.add(Dense(self.n_hidden_nodes, batch_input_shape=(
-                batch_size, n_timesteps, self.n_embedding_nodes), activation='tanh'))
+            model.add(Dense(self.n_hidden_nodes,
+                            batch_input_shape=(batch_size, n_timesteps, self.n_embedding_nodes),
+                            activation='tanh'))
 
         if pred_layer:
             model.add(Dense(self.lexicon_size + 1, activation="softmax"))
@@ -869,8 +878,8 @@ class MLPLM(SavedModel):
         if not hasattr(self, 'model'):
             assert(lexicon_size is not None)
             self.lexicon_size = lexicon_size
-            self.model = self.create_model(
-                n_timesteps=self.n_timesteps, batch_size=self.batch_size)
+            self.model = self.create_model(n_timesteps=self.n_timesteps,
+                                           batch_size=self.batch_size)
             self.start_time = timeit.default_timer()
 
         assert(type(seqs[0][0]) not in [list, tuple, numpy.ndarray])
@@ -1035,20 +1044,21 @@ class EncoderDecoder(SavedModel):
                     print("EPOCH:", epoch + 1)
             for batch_idx in range(0, len(seqs1), self.batch_size):
                 if self.recurrent:
-                    batch_seqs1 = get_seq_batch(
-                        seqs1[batch_idx:batch_idx + self.batch_size], max_length=self.n_timesteps)
-                    batch_seqs2 = get_seq_batch(
-                        seqs2[batch_idx:batch_idx + self.batch_size], padding='post', max_length=self.n_timesteps)
+                    batch_seqs1 = get_seq_batch(seqs1[batch_idx:batch_idx + self.batch_size],
+                                                max_length=self.n_timesteps)
+                    batch_seqs2 = get_seq_batch(seqs2[batch_idx:batch_idx + self.batch_size],
+                                                padding='post', max_length=self.n_timesteps)
                     # prepend zeros (not sure if this is necessary)
-                    batch_seqs2 = numpy.insert(
-                        batch_seqs2, 0, numpy.zeros(len(batch_seqs2)), axis=-1)
-                    losses.append(self.model.train_on_batch(
-                        x=[batch_seqs1, batch_seqs2[:, :-1]], y=batch_seqs2[:, 1:, None]))
+                    batch_seqs2 = numpy.insert(batch_seqs2, 0,
+                                               numpy.zeros(len(batch_seqs2)),
+                                               axis=-1)
+                    losses.append(self.model.train_on_batch(x=[batch_seqs1, batch_seqs2[:, :-1]],
+                                                            y=batch_seqs2[:, 1:, None]))
                 else:
-                    batch_seqs1 = get_vector_batch(
-                        seqs1[batch_idx:batch_idx + self.batch_size], vector_length=self.lexicon_size + 1)
-                    batch_seqs2 = get_vector_batch(
-                        seqs2[batch_idx:batch_idx + self.batch_size], vector_length=self.lexicon_size + 1)
+                    batch_seqs1 = get_vector_batch(seqs1[batch_idx:batch_idx + self.batch_size],
+                                                   vector_length=self.lexicon_size + 1)
+                    batch_seqs2 = get_vector_batch(seqs2[batch_idx:batch_idx + self.batch_size],
+                                                   vector_length=self.lexicon_size + 1)
                     losses.append(self.model.train_on_batch(x=batch_seqs1, y=batch_seqs2))
                 if batch_idx and batch_idx % (self.batch_size * 1000) == 0:
                     if self.verbose:
@@ -1127,10 +1137,10 @@ class CausalEmbeddings(SavedModel):
         else:
             cause_word_layer = Input(shape=(1,), name="cause_word_layer")
             effect_word_layer = Input(shape=(1,), name="effect_word_layer")
-            cause_emb_layer = Embedding(
-                self.lexicon_size + 1, self.n_embedding_nodes, name='cause_emb_layer')(cause_word_layer)
-            effect_emb_layer = Embedding(
-                self.lexicon_size + 1, self.n_embedding_nodes, name='effect_emb_layer')(effect_word_layer)
+            cause_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes,
+                                        name='cause_emb_layer')(cause_word_layer)
+            effect_emb_layer = Embedding(self.lexicon_size + 1, self.n_embedding_nodes,
+                                         name='effect_emb_layer')(effect_word_layer)
             flatten_layer = Flatten(name='flatten_layer')
             cause_emb_layer = flatten_layer(cause_emb_layer)
             effect_emb_layer = flatten_layer(effect_emb_layer)
