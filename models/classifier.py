@@ -424,7 +424,7 @@ class RNNLM(SavedModel):
             p_next_words = self.pred_model.predict_on_batch(x=batch_inputs)[:, -1]
         return p_next_words
 
-    def pred_batch_next_words(self, p_next_words, mode='max', n_best=1, temp=1.0, prevent_unk=True):
+    def pred_batch_next_words(self, p_next_words, mode='random', n_best=1, temp=1.0, prevent_unk=True):
         '''Below functions are for generating words via random sampling. They are written in Theano for optimized speed instead of numpy.
         I removed them to avoid dependency on Theano, but they work if you want to use them. See the commented code below to invoke them.'''
 
@@ -444,19 +444,22 @@ class RNNLM(SavedModel):
         # prevent model from generating unknown words by redistributing
         # probability; assumes indices 0 and 1 are unknown words (0s are padding,
         # 1 is explicit unknown word)
+        p_next_words = p_next_words.astype('float64')
         if prevent_unk:
             p_padding = p_next_words[:, 0]
             p_unk = p_next_words[:, 1]
             added_p = ((p_padding + p_unk) / p_next_words[:, 2:].shape[-1])[:, None]
             p_next_words[:, 2:] = p_next_words[:, 2:] + added_p
-            p_next_words[:, 0] = 0.0
-            p_next_words[:, 1] = 0.0
+            p_next_words[:, 0] = 1e-8   # set prob to tiny number to avoid inf when taking logf
+            p_next_words[:, 1] = 1e-8
 
         if mode == 'random':
             '''Uncomment this to use the Theano functions above for random sampling instead of the numpy.random.choice function below'''
             # if not hasattr(self, 'sample_words') or not self.sample_words:
             #     self.sample_words = init_sample_words(temp)
             # next_words = self.sample_words(p_next_words, temp)
+            p_next_words = numpy.log(p_next_words) / temp
+            p_next_words = numpy.exp(p_next_words) / numpy.sum(numpy.exp(p_next_words))
 
             next_words = numpy.array([rng.choice(size=(n_best,), a=numpy.arange(p_next_word.shape[0]), replace=True, p=p_next_word)
                                       for p_next_word in p_next_words])
@@ -915,19 +918,21 @@ class MLPLM(SavedModel):
         #     Next_Words, Updates = theano.scan(fn=sample_word, sequences=P_Adj_Next_Words)
         #     sample_words = theano.function([P_Next_Words], Next_Words, updates=Updates)#, allow_input_downcast=True)
         #     return sample_words
-
+        import pdb
+        pdb.set_trace()
         if prevent_unk:  # prevent model from generating unknown words by redistributing probability; assumes index 1 is prob of unknown word
             p_unk = p_next_words[:, 1]
             added_p = (p_unk / p_next_words[:, 2:].shape[-1])[:, None]
             p_next_words[:, 2:] = p_next_words[:, 2:] + added_p
-            p_next_words[:, 1] = 0.0
+            p_next_words[:, 1] = 1e-8  # set prob to tiny number to avoid inf when taking log
 
         if mode == 'random':
             '''Uncomment this to use the Theano functions above for random sampling instead of the numpy.random.choice function below'''
             # if not hasattr(self, 'sample_words') or not self.sample_words:
             #     self.sample_words = init_sample_words(temp)
             # next_words = self.sample_words(p_next_words)
-
+            p_next_words = p_next_words / temp
+            p_next_words = numpy.exp(p_next_words) / numpy.sum(numpy.exp(p_next_words), axis=0)
             next_words = numpy.array([rng.choice(size=(n_best,), a=numpy.arange(p_next_word.shape[0]), replace=True, p=p_next_word)
                                       for p_next_word in p_next_words])
         else:
