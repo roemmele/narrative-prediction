@@ -4,6 +4,7 @@ This repository contains Python code that performs "narrative continuation" (i.e
 ```
 conda create --name narrative_pred_env --file requirements.txt
 conda activate narrative_pred_env
+python -m spacy download en_core_web_md
 ```
 
 See each folder for a detailed description of each framework with instructions for running the code:
