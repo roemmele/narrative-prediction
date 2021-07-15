@@ -459,9 +459,9 @@ class RNNLM(SavedModel):
             #     self.sample_words = init_sample_words(temp)
             # next_words = self.sample_words(p_next_words, temp)
             p_next_words = numpy.log(p_next_words) / temp
-            p_next_words = numpy.exp(p_next_words) / numpy.sum(numpy.exp(p_next_words))
-
-            next_words = numpy.array([rng.choice(size=(n_best,), a=numpy.arange(p_next_word.shape[0]), replace=True, p=p_next_word)
+            p_next_words = numpy.exp(p_next_words) / numpy.sum(numpy.exp(p_next_words), axis=1)[:, None]
+            next_words = numpy.array([rng.choice(size=(n_best,), a=numpy.arange(p_next_word.shape[0]),
+                                                 replace=True, p=p_next_word)
                                       for p_next_word in p_next_words])
         else:
             next_words = numpy.argmax(p_next_words, axis=1)[:, None]
