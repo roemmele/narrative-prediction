@@ -91,7 +91,7 @@ train_model(train_seqs='example_stories.txt', model, n_epochs=10)
 ## Generating
 Generation works by taking an initial sequence (context) and producing one or more sequences intended to follow it in the text. To use a trained model to perform this task for a given set of context sequences, you can run generate_sequences.py. The --context_seqs parameter should be the path to a text file with one sequence per line (same format as the train sequences file), as can be seen in the example_contexts.txt file included here. You'll also need to supply --model_filepath, the folder where the trained model files were saved, as well as --save_filepath, the .csv filepath where the generated sequences will be saved. In the case that multiple sequences per context are generated, they will be comma-separated on a single line such that each line of generated sequences corresponds to the position their context sequence appears in the file. 
 
-We trained a model on approximately 8,000 books in the Toronto BookCorpus dataset. This is the model that is currently demoed in Creative Help. You can download this model [here](https://drive.google.com/file/d/1nnaBzAoAJnFXXwHMVNyADMtiRr8UcAAB/view?usp=sharing) and use it in place of the example model included here.
+We trained a model on approximately 8,000 books in the Toronto BookCorpus dataset. This is the model that is currently demoed in Creative Help. You can download this model [here](https://drive.google.com/file/d/1mAIJgsNYBWMrbyCZ7l1f_G7_0qFu46c_/view?usp=sharing) and use it in place of the example model included here.
 
 
 ```
