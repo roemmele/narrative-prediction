@@ -1,7 +1,5 @@
 # This file may be used to create an environment using:
 # $ conda create --name <env> --file <this file>
-#en-core-web-md=2.0.0
-#en-core-web-sm=2.0.0
 h5py=2.9.0
 hdf5=1.10.4
 ipython=7.8.0
@@ -13,9 +11,7 @@ keras-preprocessing=1.0.9
 numpy=1.15.4
 numpy-base=1.15.4
 pandas=0.25.1
-pip=19.1
 python=3.7.3
-pyyaml=5.1
 scipy=1.1.0
 spacy=2.0.16
 tensorboard=1.13.1
