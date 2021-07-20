@@ -158,3 +158,5 @@ gen_seqs = generate(context_seqs='example_contexts.csv', model=model, save_filep
                     n_context_sents=-1, eos_tokens=None)
 ```
 After generating the sequences, the generate() function will print a sample of the generated sequences for each context.
+
+Note: In the [demo](http://www.get-creative.help), the --temperature (-temp) variable is set to 0.6 instead of the default 1.0. See this [paper](https://roemmele.github.io/publications/creative-help-demo.pdf) mentioned above for some experimental findings regarding varying this temperature value. Compared with 1.0, temp=0.6 produced sentences rated by authors as more helpful for advancing the story. 
